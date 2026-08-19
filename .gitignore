@@ -1,0 +1,6 @@
+/homebase
+*.exe
+*.test
+*.out
+dist/
+.DS_Store
