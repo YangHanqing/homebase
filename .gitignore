@@ -2,7 +2,8 @@
 *.exe
 .DS_Store
 
-# Internal design/contract docs — not part of the public distribution.
+# Agent contracts and design docs stay local; they are not part of the
+# public repository.
 AGENT.md
-docs/DESIGN.md
-docs/DISTRIBUTION.md
+CLAUDE.md
+docs/
