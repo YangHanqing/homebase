@@ -1,0 +1,80 @@
+package api
+
+import (
+	"net"
+	"net/http"
+
+	"github.com/yanghanqing/homebase/internal/config"
+)
+
+// requireLoopbackPeer gates the settings endpoints to the machine's own
+// browser, regardless of which access tier is currently running. This is
+// deliberately independent of auth.RequireLoopbackHost (which pins the Host
+// header for the *unauthenticated* local tier only): here we check the actual
+// TCP peer address, so that even on the private/lan tier — where the main UI
+// is reachable from elsewhere and gated by a paired-device cookie instead —
+// changing access/trusted-ranges still requires being on the machine itself.
+func requireLoopbackPeer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			writeError(w, http.StatusForbidden, "settings can only be changed from this machine (open it in a browser running on the Homebase host itself)")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type settingsBody struct {
+	Access        config.Access `json:"access"`
+	TrustedRanges []string      `json:"trusted_ranges"`
+}
+
+func settingsResponse(f config.File) settingsBody {
+	return settingsBody{Access: f.Access, TrustedRanges: f.TrustedRanges}
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	requireLoopbackPeer(http.HandlerFunc(s.handleSettingsInner)).ServeHTTP(w, r)
+}
+
+func (s *Server) handleSettingsInner(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, settingsResponse(s.Store.Snapshot()))
+	case http.MethodPut:
+		var body settingsBody
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if body.Access != "" {
+			if !config.ValidAccess(body.Access) {
+				writeError(w, http.StatusBadRequest, "unknown access tier")
+				return
+			}
+			if err := s.Store.SetAccess(body.Access); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		if body.TrustedRanges != nil {
+			if err := s.Store.SetTrustedRanges(body.TrustedRanges); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		resp := settingsResponse(s.Store.Snapshot())
+		writeJSON(w, http.StatusOK, map[string]any{
+			"access":           resp.Access,
+			"trusted_ranges":   resp.TrustedRanges,
+			"restart_required": true,
+		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}

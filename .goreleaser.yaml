@@ -1,0 +1,43 @@
+# Asset names are a contract with install.sh. Do not fall back to GoReleaser
+# defaults — those have changed across versions, and a rename 404s the installer.
+version: 2
+
+project_name: homebase
+
+builds:
+  - id: homebase
+    main: ./cmd/homebase
+    binary: homebase
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "homebase_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - README.zh.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  extra_files:
+    - glob: ./install.sh

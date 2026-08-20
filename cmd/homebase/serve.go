@@ -1,0 +1,131 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/yanghanqing/homebase/internal/api"
+	"github.com/yanghanqing/homebase/internal/auth"
+	"github.com/yanghanqing/homebase/internal/session"
+)
+
+func runServe(args []string) int {
+	fs := flag.NewFlagSet("homebase serve", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	configPath := fs.String("config", "", "path to config.json (default: ~/.config/homebase/config.json)")
+	listenFlag := fs.String("listen", "", "bind host or host:port (cannot escape the access tier)")
+	portFlag := fs.Int("port", 0, "listen port (default 1990)")
+	logLevel := fs.String("log-level", "info", "debug|info|warn|error")
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+
+	level, ok := parseLevel(*logLevel)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unknown -log-level %q\n", *logLevel)
+		return 2
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(log)
+
+	if err := requireTmux(); err != nil {
+		return 2
+	}
+
+	r, err := setup(*configPath, *listenFlag, *portFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	res := r.res
+
+	if res.TierFallback {
+		log.Warn("access is private but no address inside the trusted ranges was found; binding loopback — other devices cannot connect", "addr", res.Addr)
+	}
+	if res.NeedsAuth() && !res.Trusted {
+		log.Warn("this listener is plain HTTP and NOT on a trusted range — see the security warning in Settings/README before exposing it to any network you don't fully trust", "addr", res.Addr)
+	}
+
+	var h http.Handler = api.NewMuxServer(&api.Server{
+		Store:   r.store,
+		Devices: r.dev,
+		Listen:  res.Addr,
+		Dialer:  session.LocalDialer{},
+		Log:     log,
+	})
+
+	if res.NeedsAuth() {
+		gate := &auth.Gate{Devices: r.dev, Log: log}
+		h = gate.Wrap(h)
+		list, _ := r.dev.List()
+		log.Info("device pairing required", "paired", len(list))
+		if len(list) == 0 {
+			log.Warn("no devices paired yet — run 'homebase pair' to get a login link")
+		}
+	} else {
+		// Loopback is unauthenticated, so the Host header is the only thing
+		// standing between a malicious web page and a shell here.
+		h = auth.RequireLoopbackHost(strconv.Itoa(res.Port), h)
+		log.Info("loopback only: no pairing required, Host header pinned")
+	}
+
+	srv := &http.Server{
+		Addr:              res.Addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Info("listening",
+			"addr", res.Addr,
+			"access", string(r.cfg.Access),
+			"url", baseURL(res),
+			"trusted_range", res.Trusted,
+			"auth", res.NeedsAuth(),
+			"config", r.store.Path(),
+		)
+		errCh <- srv.ListenAndServe()
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case <-ctx.Done():
+		shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shut)
+		return 0
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "http: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+}
+
+func parseLevel(s string) (slog.Level, bool) {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	}
+	return slog.LevelInfo, false
+}

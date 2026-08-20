@@ -1,50 +1,154 @@
 # Homebase
 
-自托管的 Web 终端会话入口。跑在家里常开的那台机器上（例如 Mac mini），浏览器经 Tailscale 打开后，自动 attach 到各设备上已有的 tmux session。关浏览器、笔记本休眠、网络抖一下，工作还在 tmux 里。
+*[中文说明](README.zh.md)*
 
-实现合同：[`AGENT.md`](AGENT.md)。技术方案：[`docs/DESIGN.md`](docs/DESIGN.md)（Accepted）。顺序：[`docs/PLAN.md`](docs/PLAN.md)。
+A self-hosted web terminal. Run it on a machine that's always on (a Mac mini,
+a home server). Open a browser. You're in a `tmux` session on that machine.
 
-文档已定稿。实现按 PLAN 做五个顺序 commit，不要揉成一个「先能看」的大提交。
+Close the tab, sleep the laptop, drop Wi-Fi — the work is still in tmux.
+Homebase is just the bridge.
 
-## 它不是什么
+The UI's window list *is* that session's tmux windows. Create, rename, close,
+switch, all from the browser. You never name the session, and you never have
+to press `C-b`.
 
-- 不是多用户堡垒机，不是公网 shell 网关
-- 不保存 SSH 密码
-- 不在网页里自绘分屏或把 tmux window 映射成浏览器 Tab；右侧就是普通 tmux 客户端
+## Install
 
-## 运行前你需要
-
-1. **Tailscale** 已在 Homebase 机器和你的客户端设备上登录同一 tailnet。
-2. 从 **Homebase 这台机器** 能对每个目标 host **密钥登录**：
-
-   ```bash
-   ssh-copy-id user@host
-   ssh user@host            # 必须成功一次，写入 known_hosts
-   ```
-
-   Homebase 使用 `BatchMode=yes`，不会在网页里帮你点 `yes/no` 或打密码。连本机也走 ssh，配 `user@localhost`。
-
-3. 目标机器装了 **tmux**（Apple Silicon 上常见是 Homebrew，路径 `/opt/homebrew/bin/tmux`）。Homebase 会自己补 PATH；没装时 UI 会明确说，而不会假装会话丢了。
-
-4. 不要把进程听在公网。默认：能探测到 Tailscale IPv4 就绑那个地址，否则 `127.0.0.1`。听 `0.0.0.0` 必须在配置里打开 `allow_public_bind`。
-
-## 配置
-
-默认文件：`~/.config/homebase/config.json`（可用 `-config` 改）。第一次启动若文件不存在，会写入一份空默认（`windows: []`，目录 0700，文件 0600）。形态见 AGENT.md。
-
-可选 HTTP Basic Auth（默认关）。打开前用 `homebase hash-password` 生成 bcrypt，不要把明文密码写进 JSON。
-
-## 启动
+macOS (Apple Silicon or Intel) and Linux. The only extra dependency is
+**tmux**. Windows, iPad, and phones are browsers, not hosts.
 
 ```bash
-go build -o homebase ./cmd/homebase
-./homebase
+curl -fsSL https://github.com/yanghanqing/homebase/releases/latest/download/install.sh | sh
+homebase start
 ```
 
-日志里会打印实际 bind 地址。用 Tailscale 那台设备的浏览器打开 `http://<tailscale-ip>:7681`。
+Then, on this machine, open **http://127.0.0.1:1990**.
 
-## 安全摘要
+That's the whole path if you only need this computer. No pairing, no password.
 
-- SSH：只用已有密钥，不存密码，不关 `StrictHostKeyChecking`
-- 删 UI 里的 Window **不会** `tmux kill-session`
-- 不要在日志或 issue 里贴密钥、bcrypt、终端输出
+The installer puts the binary in `~/.local/bin` and leaves it there.
+`homebase start` registers a user service (launchd on macOS, systemd on
+Linux) so it comes back after a reboot, then returns you to the prompt.
+
+Pin or roll back a version with `HOMEBASE_VERSION=v0.1.0` in front of the
+`curl` line. Upgrading is the same command again; if the service is already
+running, follow it with `homebase restart`.
+
+## Another device (phone, laptop)
+
+There is no password. Pairing a device means: you can already run a command
+on this machine, so you mint a one-time link and open it over there.
+
+1. On this machine, open [http://127.0.0.1:1990/settings.html](http://127.0.0.1:1990/settings.html)
+2. Set **Access** to **Trusted range** (your Tailscale / WireGuard network),
+   or **Local network** if you understand the risk below
+3. Save, then in a terminal on this machine:
+
+```bash
+homebase restart
+homebase pair
+```
+
+4. Open the printed URL on the other device. It stays signed in.
+
+Repeat `homebase pair` for each new device. Revoke one from Settings (same
+page, only reachable from this machine).
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `homebase start` | Write the user service and run it |
+| `homebase stop` | Stop the service. Config and tmux stay |
+| `homebase restart` | `stop` then `start`. Use this after changing Access |
+| `homebase status` | Running?, bind address, URL, tmux, version |
+| `homebase pair` | One-time login URL, valid 10 minutes |
+| `homebase version` | Build version |
+
+## ⚠️ Read this before leaving this machine
+
+Homebase speaks **plain HTTP, not HTTPS**. Whoever can open the page can run
+commands on this machine, as the user running Homebase — the same as sitting
+at its keyboard.
+
+Whether that's a problem depends on where you bind it:
+
+| Where | Safe? |
+| --- | --- |
+| `127.0.0.1` (default) | Yes. Traffic never leaves the machine. |
+| A **trusted range** you configured (Tailscale, WireGuard, …) | Yes *if* that range really is already encrypted. Homebase cannot verify this — it's your assertion, made in Settings. |
+| Any other network (LAN, hotel, office Wi-Fi) | **No.** Someone on that network can intercept the session and take the machine. |
+
+`access` is the one knob. It lives in Settings, not in the CLI:
+
+| Access | Binds | Pairing |
+| --- | --- | --- |
+| Local only (default) | `127.0.0.1` | No |
+| Trusted range | first address inside your trusted ranges, else loopback | Yes |
+| Local network | `0.0.0.0` | Yes |
+
+Local only needs no login because reaching `127.0.0.1` already means you can
+open a terminal here. (The `Host` header is pinned so a random web page
+cannot DNS-rebind its way in.)
+
+Anything else requires pairing — but pairing is authentication, not
+encryption. It stops a stranger from using the UI; it does **not** stop
+someone on the same untrusted network from reading the session cookie off
+the wire. Only put Homebase on a network you fully control.
+
+## Settings and config
+
+Settings (`/settings.html`) is reachable only from `127.0.0.1`, even when
+Access is Trusted range or Local network. Changing Access or trusted ranges,
+and revoking devices, always requires being on the machine itself.
+
+After you save Access, run `homebase restart` in a terminal on this machine.
+The process will not restart itself from the browser.
+
+Default config: `~/.config/homebase/config.json` (override with `-config` on
+`start` / `serve` / `status` / `pair`). First run writes a safe default:
+`access: local`, directory `0700`, file `0600`.
+
+```json
+{
+  "version": 4,
+  "access": "local",
+  "listen_addr": "",
+  "listen_port": 1990,
+  "trusted_ranges": ["100.64.0.0/10"]
+}
+```
+
+`trusted_ranges` is a list of CIDRs you assert are already encrypted.
+The default is Tailscale's CGNAT range. Replace it if you use something
+else. It is not a cryptographic boundary — it only picks the `private`
+bind address and which warning Settings shows.
+
+## From source
+
+```bash
+git clone https://github.com/yanghanqing/homebase
+cd homebase
+go build -o homebase ./cmd/homebase
+./homebase start
+```
+
+`start` registers whatever binary you just ran; it does not copy it into
+`~/.local/bin`. Re-vendor xterm.js (rarely needed): `./scripts/vendor-xterm.sh`.
+
+Foreground, no service manager (debugging): `./homebase serve`.
+
+## Security summary
+
+- Always plain HTTP. Encryption, if any, comes from the network you put
+  Homebase on, not from Homebase itself.
+- No password. Pairing requires already being able to run a command here, so
+  it grants no new capability.
+- Pairing tokens expire in 10 minutes and are single-use; only a SHA-256
+  hash is stored.
+- Off loopback, a paired device is required. `trusted_ranges` is a label for
+  the Settings warning, not a proof of identity.
+- Settings and device revoke are loopback-only.
+- Never `kill-server` / `kill-session`. The last tmux window in the session
+  refuses to close.
+- Don't paste keys, password hashes, or raw terminal output into logs or issues.

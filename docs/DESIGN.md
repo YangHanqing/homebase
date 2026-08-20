@@ -3,21 +3,28 @@
 | 字段 | 值 |
 | --- | --- |
 | 状态 | Accepted |
-| 日期 | 2026-08-19 |
-| 范围 | V1 |
-| 配套 | [`../AGENT.md`](../AGENT.md) 是给实现 agent 的硬合同；本文是理由与细节。实现顺序见 [`PLAN.md`](PLAN.md)。 |
+| 日期 | 2026-08-20 |
+| 范围 | V2 |
+| 配套 | [`../AGENT.md`](../AGENT.md) 是给实现 agent 的硬合同；本文是理由与细节。 |
 
-Homebase 是跑在家庭常开机器上的 **dumb PTY 桥**：浏览器里的 xterm.js 看到的就是普通 tmux 客户端（状态栏、`C-b`、分屏都是 tmux 自己画的）。持久化在远端 tmux，不在 Homebase。禁止 `tmux -D`，以免把其它客户端踢掉。
+Homebase 是跑在家庭常开机器上的 **dumb PTY 桥**：浏览器里的 xterm.js 看到的就是一个普通 tmux 客户端。持久化在 tmux，不在 Homebase。
 
-V1 已定稿。实现按 PLAN 顺序写；改听口、SSH argv、PTY 寿命、WebSocket 帧、resize、重连之前先改本文和 AGENT.md。
+V2 相对 V1 的核心变化：**一台 host 一个固定 session（`homebase`），侧栏列的是这个 session 里的 tmux window。** 用户不再配置 host/user/session 就能用——默认连本机，不走 ssh。
 
 ---
 
 ## Overview
 
-问题：家里有多台机器，每台上面挂着长期 tmux。从笔记本、iPad、另一台电脑回到这些会话，现在依赖「记得 host、记得 session 名、手动 ssh、手动 attach」，而且浏览器或 SSH 客户端一关，本地的终端视图就没了。真正的状态在远端 tmux 里，但入口太散。
+问题：家里有几台机器挂着长期 tmux。从笔记本、iPad 回到这些会话，依赖「记得 host、记得 session 名、手动 ssh、手动 attach」。
 
-方案：在 Mac mini（Tailscale 节点）上常驻一个 Go 单二进制。浏览器打开它，左侧是已配置的 Window 列表（host + 固定 tmux session 名），右侧是 xterm.js。页面加载后 **自动为每一个 Window 建立** `ssh -tt … tmux new-session -A -s <name>`。WebSocket 断了就指数退避重连；tmux 的 `-A` 幂等 attach，历史靠 tmux 缓冲区，不靠 Homebase 存输出。
+V1 的方案是让用户把每个 (host, session) 配成一行。实践下来这个心智模型是错的：**用户要的是多个工作区，而 tmux 早就有了——就是 window。** 多开 session 没有意义，配置 session 名更没有意义。
+
+V2 的方案：
+
+- 每台 host 上有且只有一个 tmux session，名字固定 `homebase`。
+- 浏览器里只有 **一个** xterm、一条 WebSocket、一个 PTY。
+- 侧栏列的是 `homebase` 这个 session 里的 tmux window，增删改切全部走 UI，用户不需要按 `C-b`。
+- 左上角是 host 下拉。默认「本机」，零配置、不走 ssh。想连家里其它机器再自己加。
 
 访问路径只有 Tailscale（或显式配置的内网地址）。默认拒绝 `0.0.0.0`。
 
@@ -25,12 +32,12 @@ V1 已定稿。实现按 PLAN 顺序写；改听口、SSH argv、PTY 寿命、We
 
 ## Background & Motivation
 
-- 会话持久化已经有了：tmux。缺的是 **从任意设备一键回到全套会话** 的入口。
-- 现成 Web 终端（gotty / ttyd / Wetty）是「把一个本地进程丢到浏览器」，不做多 host 配置列表，也不默认 `tmux new -A`。
-- Homebase 做的是「很多 host，每个 host 一两个长期 session，用浏览器从任意设备回去」。
+- 会话持久化已经有了：tmux。缺的是 **从任意设备一键回到工作现场** 的入口。
+- 现成 Web 终端（gotty / ttyd / Wetty）是「把一个本地进程丢到浏览器」，不做 host 列表，也不默认 `tmux new -A`。
+- 用户日常 99% 只用本机。让本机也必须 `ssh-copy-id`、进 known_hosts，是纯粹的入门摩擦。
 - 约束来自部署：家庭机器，不想装 Node、不想维护容器、不想公网暴露、一个文件拷过去就能跑。
 
-目标负载：单个操作者，≤ 32 个 Window，每个浏览器上每个 Window 一条 ssh。这不是多租户 SaaS。延迟目标：本机/Tailscale 内击键回显 < 50ms 量级，不在 Homebase 里做自适应缓冲。
+目标负载：单个操作者，少量 host，一台 host 上十几个 tmux window。不是多租户 SaaS。延迟目标：本机/Tailscale 内击键回显 < 50ms 量级。
 
 ---
 
@@ -38,24 +45,26 @@ V1 已定稿。实现按 PLAN 顺序写；改听口、SSH argv、PTY 寿命、We
 
 ### Goals
 
-1. Window 列表的增删改查，配置落在服务端 JSON。删配置不影响远端 tmux session。
-2. 每个 Window 独立 xterm.js + 独立 WebSocket，完整 VT100/ANSI，能跑 vim / htop / less / tmux 状态栏。
-3. 打开页面 = 自动连接全部 Window。
-4. 容器尺寸变化实时同步到 pty（`pty.Setsize`）。
-5. WebSocket 断线自动重连（1s → 2s → 4s → … cap 30s，不停）。
-6. 默认只绑 Tailscale IPv4 或 `127.0.0.1`；SSH 只用已有密钥。
-7. 单一静态二进制，`embed` 前端。
+1. 打开页面即用，**零配置**：默认连本机的 `homebase` session，不需要 ssh 配置。
+2. 侧栏 = 真实的 tmux window 列表。新建 / 改名 / 删除 / 切换全部点 UI 完成，不需要 `C-b`。
+3. 一个 xterm、一条 WS、一个 PTY，完整 VT100/ANSI，能跑 vim / htop / less。
+4. 可选的多 host：左上下拉切换，本机固定不可删。
+5. 容器尺寸变化实时同步到 pty（`pty.Setsize`）。
+6. WebSocket 断线自动重连（1s → 2s → 4s → … cap 30s，不停）。
+7. 默认只绑 Tailscale IPv4 或 `127.0.0.1`；远程 SSH 只用已有密钥。
+8. 单一静态二进制，`embed` 前端。
 
-### Non-Goals（V1 明确不做）
+### Non-Goals（明确不做）
 
 - 多用户、注册、权限、OAuth
 - Electron / Tauri / 任何桌面壳
-- `tmux -CC`、自绘分屏、把 tmux window 映射成浏览器 Tab
+- `tmux -CC`、自绘分屏
+- 一台 host 多个 session（这正是 V2 要去掉的东西）
 - 密码登录、保存 SSH 密码
 - SFTP、文件传输、会话录像、AI
 - 公网暴露、反向代理套件、容器编排
 - SQLite / 数据库服务
-- localhost 免 ssh、WS 连接数限额、拖拽排序、IPv6 Tailscale、自托管字体
+- tmux pane 的 UI 管理（分屏交给 tmux，`C-b %` 仍然可用）
 
 ---
 
@@ -63,21 +72,21 @@ V1 已定稿。实现按 PLAN 顺序写；改听口、SSH argv、PTY 寿命、We
 
 | # | 决定 | 理由 |
 | --- | --- | --- |
-| D1 | PTY 寿命 = WebSocket 寿命（Model A） | 产品文案把持久化交给 tmux；重连「再走一遍 `tmux new -A`」。Homebase 不在无客户端时白占 ssh。多浏览器 = 多个 tmux client，这是 tmux 的本意。 |
-| D2 | 不用 `tmux -CC` | Web 里要能跑任意 TUI，包括 tmux 自己的 UI。Control mode 会取消服务端绘制。 |
-| D3 | `/usr/bin/ssh` + argv 数组，不引 SSH 库 | 继承 `~/.ssh/config`、known_hosts、agent、ProxyJump、ControlMaster、Tailscale MagicDNS。 |
-| D4 | 远端命令 `exec /bin/sh -c '…'` + 显式 PATH | Homebrew tmux 在 `/opt/homebrew/bin`，非 login shell 找不到。登录 shell 可能是 fish/csh，不能写 `{ …; }` 或 `$( )`。 |
-| D5 | `BatchMode=yes`，不关 `StrictHostKeyChecking` | 禁止密码；禁止静默接受主机密钥。第一次连要在 **Homebase 这台机器上** 先成功 `ssh` 一次。 |
-| D6 | gorilla/websocket | 终端桥场景（binary + text 混用）资料最多；与 `net/http` 升级路径直接。 |
-| D7 | JSON 文件，不引入 SQLite | ≤ 32 行配置，原子 rename 足够。 |
-| D8 | 默认听 Tailscale IPv4，否则 loopback；`0.0.0.0` 必须 `allow_public_bind` | 防止「随手 go run 就挂公网」。 |
-| D9 | 可选 HTTP Basic Auth，默认关 | 浏览器会把 Basic 带到同源 WebSocket，不必把 token 塞进 query（会进日志/历史）。 |
-| D10 | 前端零构建：vendor xterm.js 5.5.0 | 部署机无 Node。更新 xterm 用 `scripts/vendor-xterm.sh`。 |
-| D11 | 重连时 `term.reset()` | 本地 buffer 和 tmux 重绘叠在一起会花屏；交给 tmux 重画。 |
-| D12 | 隐藏终端不用 `display:none` | FitAddon 在 `display:none` 下得到 0×0，TUI 错位。 |
-| D13 | 缺配置文件则写入一份默认空配置 | 一条路径：目录 0700、文件 0600、`windows: []`。不预置 Window，不单独做「首次向导」。 |
-| D14 | UI 用系统字体 | 不 vendor 字体、不走 CDN。 |
-| D15 | 未知 Window 关 WS 4404；没有连接数限额 | 配置顶 32 行已经够。多标签 = 多条 ssh，这是 Model A 的本意。 |
+| D1 | 一台 host 一个固定 session `homebase`，侧栏列 tmux window | 用户要的是多工作区，tmux window 就是。多 session 只会让多个 client attach 同一个 session 时互相镜像（同一个 active window），侧栏会变成 N 个一模一样的视图。 |
+| D2 | PTY 寿命 = WebSocket 寿命（Model A） | 持久化交给 tmux；重连就再走一遍 `tmux new -A`。无客户端时不白占 ssh。 |
+| D3 | **控制通道与 PTY 通道分离** | 往 PTY 里写字节等于替用户打字。侧栏的 list/new/rename/kill/select 必须走独立的、短命的 `tmux` 命令。 |
+| D4 | 本机直接 exec tmux，不走 ssh | 去掉 `ssh-copy-id`、known_hosts、四个 ssh 错误码这一整套入门摩擦。远程仍然走 `/usr/bin/ssh`。 |
+| D5 | 远程 ssh 加 `ControlMaster=auto` | 控制通道每次点击都是一条新 ssh；不复用连接的话远程 host 每次切窗口要多握手 200–500ms。 |
+| D6 | 关掉 tmux 状态栏（`set-option -t homebase status off`） | 侧栏已经是窗口列表，底部再来一条是重复。已验证这是 **session 级** 选项，不污染全局 `status on`。 |
+| D7 | 保留 tmux 默认 `automatic-rename on` | 没改过名的窗口名字跟着当前命令走（`zsh` → `vim`），侧栏一眼看出哪个窗口在跑什么。用户手动改名后 tmux 会自动把该窗口的 `automatic-rename` 关掉，名字就固定了——已验证。 |
+| D8 | 最后一个 window 禁止删除 | `kill-window` 删掉最后一个会连 session 一起销毁。前端置灰 + 服务端 400 双重拦。这样 AGENT.md「绝不 kill session」那条约束不用放松。 |
+| D9 | `/usr/bin/ssh` + argv 数组，不引 SSH 库 | 继承 `~/.ssh/config`、known_hosts、agent、ProxyJump、Tailscale MagicDNS。 |
+| D10 | 远端命令 `exec /bin/sh -c '…'` + 显式 PATH | Homebrew tmux 在 `/opt/homebrew/bin`，非 login shell 找不到。登录 shell 可能是 fish/csh，不能写 `{ …; }` 或 `$( )`。 |
+| D11 | `BatchMode=yes`，不关 `StrictHostKeyChecking` | 禁止密码；禁止静默接受主机密钥。 |
+| D12 | 侧栏轮询而非推送 | 用户仍可能在终端里手敲 `C-b c`，或从 iTerm attach 同一个 session。3s 轮询 + 每次 UI 操作后立即刷新，够了，也不必引入 tmux hooks。页面不可见时暂停轮询。 |
+| D13 | 本机 host 是隐式的，不进配置文件 | 它没有任何可配置字段。配置里只有用户自己加的远程 host。 |
+| D14 | config bump 到 version 2，丢弃 v1 的 `windows` | 尚未发布，不写迁移代码。v1 文件能正常打开，`windows` 字段被忽略。 |
+| D15 | 其余沿用 V1：gorilla/websocket、JSON 配置、零构建前端、Basic Auth 可选 | 见下方 Alternatives。 |
 
 ---
 
@@ -93,448 +102,315 @@ flowchart LR
   subgraph mini [Homebase 常开机]
     H[homebase 二进制]
     C[(config.json)]
+    TL[本机 tmux session homebase]
   end
-  subgraph remotes [家中设备]
-    T1[tmux session work]
-    T2[tmux session media]
+  subgraph remotes [家中其它设备]
+    T2[tmux session homebase]
   end
-  B -->|"HTTP + WS /ws/windows/{id}"| H
+  B -->|"WS /ws/hosts/{id}  —— PTY"| H
+  B -->|"REST /api/hosts/{id}/windows —— 控制"| H
   H --> C
-  H -->|"ssh -tt user@host … new-session -A"| T1
-  H -->|"ssh -tt …"| T2
+  H -->|"exec tmux（本机，无 ssh）"| TL
+  H -->|"ssh -tt user@host … tmux"| T2
 ```
 
-一条 Window 在一次浏览器会话里的路径：
+**两条通道，同一个 host：**
 
-```mermaid
-sequenceDiagram
-  participant UI as xterm.js
-  participant WS as WebSocket
-  participant S as session.Proc
-  participant SSH as /usr/bin/ssh
-  participant TM as remote tmux
-  UI->>WS: 页面加载后自动 connect
-  WS->>S: Start(window, cols, rows)
-  S->>SSH: pty.Start(ssh -tt …)
-  SSH->>TM: tmux new-session -A -s NAME
-  TM-->>UI: binary stdout
-  UI-->>SSH: binary stdin
-  UI->>WS: text {"type":"resize","cols":n,"rows":m}
-  WS->>S: pty.Setsize
-  Note over WS,S: WS 关闭 → Kill ssh 进程组<br/>不杀远端 tmux server
-```
+| 通道 | 载体 | 本机 | 远程 |
+| --- | --- | --- | --- |
+| PTY | WebSocket，长连接 | `tmux new-session -A -s homebase …` | `ssh -tt … 'exec /bin/sh -c …'` |
+| 控制 | REST，每次一条短命进程 | `tmux list-windows …` | `ssh … 'exec /bin/sh -c … tmux list-windows …'` |
+
+控制通道 **绝不** 往 PTY 里写字节。
 
 ### 2. PTY 寿命（Model A）
 
-**每个浏览器上的每个 Window = 一条 WebSocket = 一个本地 ssh 进程。**
+**一个浏览器 = 一条 WebSocket = 一个本地进程（本机 tmux 或 ssh）。**
 
-| 事件 | Homebase 做 | 远端 tmux |
-| --- | --- | --- |
-| 页面打开 | 为每个 Window 开 WS + spawn ssh | attach 或创建 |
-| 切换左侧列表 | 只改可见性，不关 WS | 不变 |
-| 浏览器关掉 / 休眠断 WS | Kill 本地 ssh | session 继续 |
-| WS 重连 | 再 spawn ssh + `new -A` | 再 attach，缓冲区还在 |
-| DELETE Window 配置 | 关这条 WS + 删 JSON 行 | **不动** |
+- WS 建立 → spawn，带上当前 cols/rows。
+- WS 关闭 → kill 本地进程。远端 tmux server 和 session 一律不碰。
+- 重连 → 再跑一遍同样的命令。`new-session -A` 幂等，历史由 tmux 重绘。
+- 切 host → 断开当前 WS，连新的。tmux 保状态，什么都不丢。不在后台保留上一个连接。
 
-反对 Model B（服务端常驻 PTY、多浏览器复用同一个 fd）的理由：
-
-- 多客户端 resize 无法同时满足；要在 Homebase 里做广播和尺寸仲裁，等于弱实现一遍 tmux。
-- 浏览器关了还占着 ssh，Mac mini 上进程语义变糊。
-- 和需求里「重连再走自动连接逻辑」矛盾。
-
-两个浏览器同时打开同一 Window：两个 ssh client。tmux 会按用户的 `window-size` / `aggressive-resize` 处理尺寸。Homebase 不改远端 tmux.conf。
+两个浏览器开同一个 host，就是两个 tmux client attach 同一个 session。这是 tmux 的正常行为。**不加 `-D`**（会把另一个客户端踢掉）。尺寸打架是 tmux 的问题（用户自己的 `window-size` / `aggressive-resize`）。
 
 ### 3. 模块划分
 
-```
-cmd/homebase          解析 flag，组装 Store / HTTP / shutdown
-internal/config       文件、校验、原子写
-internal/listen       Tailscale 探测、公网绑定拒绝
-internal/ident        host/user/session_name 规则（API 与 spawn 各检一次）
-internal/auth         可选 Basic Auth
-internal/api          /api/windows*
-internal/session      Dialer / SSHDialer / Proc
-internal/ws           升级、帧、与 Proc 对接
-web/                  embed.FS
-```
+| 包 | 职责 |
+| --- | --- |
+| `internal/config` | JSON 文件、互斥、原子替换、`hosts` 增删改查 |
+| `internal/ident` | host / user / label / window name / window index 校验 |
+| `internal/tmux` | **控制通道**：list / new / rename / kill / select。本机直接 exec，远程包一层 ssh |
+| `internal/session` | **PTY 通道**：`Dialer` 接口 + `LocalDialer`（exec tmux）+ `SSHDialer` |
+| `internal/ws` | 一条 WS 一个 Proc，双向管道 + resize |
+| `internal/api` | REST `/api/hosts`、`/api/hosts/{id}/windows` |
+| `internal/listen` | Tailscale 探测、公网绑定闸门 |
+| `internal/auth` | 可选 Basic Auth |
 
-`session.Dialer` 接口：
+### 4. tmux 命令（不要即兴发挥）
 
-```go
-type Size struct{ Cols, Rows uint16 }
+会话名是编译期常量 `homebase`。
 
-type Proc interface {
-    Read(p []byte) (int, error)
-    Write(p []byte) (int, error)
-    SetSize(Size) error
-    Wait() error
-    Kill() error
-}
-
-type Dialer interface {
-    Start(ctx context.Context, w config.Window, sz Size) (Proc, error)
-}
-```
-
-测试用 `CommandDialer` 直接 `pty.Start(tmux …)`，不走 ssh。生产 V1 只有 `SSHDialer`。
-
-并发：每个 Proc 配
-
-- 1 个 goroutine：`Read` pty → WS binary
-- 1 个 goroutine：WS → `Write` / resize / ping
-- `sync.Mutex` 保护 `Write` 与 `SetSize`
-- `context` 取消 = Kill + 关 WS
-
-硬顶 32 Window。pty 读写不做额外用户态缓冲合并（避免把 CSI 拆坏或粘包到一帧里导致 TUI 卡）。`SetReadDeadline` 仅用于 shutdown，不用来「优化」。
-
-进程组：`SysProcAttr{Setpgid: true}`（Linux/macOS），Kill 时向整个 pgid 发信号，避免 ssh 留下孤儿。超时 2s 后 `SIGKILL`。
-
-PTY 需要 raw：`creack/pty.Start` 之后确认 winsize；不要在应用层做 `\n` → `\r\n`。Go 侧把 ssh 的 stderr 与 pty 分开：pty 走 binary 给前端；启动失败时把有限长度的 stderr 映射成 `code`（见 §7）。
-
-### 4. SSH 与远端命令
-
-#### 4.1 为什么是 `/usr/bin/ssh`
-
-自研或 `golang.org/x/crypto/ssh` 要重做 config / known_hosts / agent / ProxyJump / ControlMaster。家庭环境这些是刚需。
-
-#### 4.2 固定 flags
+#### 4.1 PTY（attach）
 
 ```
--tt
+tmux new-session -A -s homebase [-c DIR] ';' set-option -t homebase status off
+```
+
+`';'` 必须作为 **独立且被引用的一个 argv**，否则本机 exec 会把它当 session 名的一部分，远程 `/bin/sh` 会把它当命令分隔符。
+
+`-c DIR` 是 session 的起始目录，**只在本机传**，值是操作者 `$HOME` 解析后的绝对路径。不传的话 session 继承的是 homebase 服务进程自己的 cwd —— 在 launchd 下这个值是任意的。`-A` 在 session 已存在时会忽略 `-c`，所以永远可以安全传入。不要写字面量 `~`：argv 不经过 shell，不会被展开。远程 **不传** `-c`：非交互 ssh 命令本来就落在远端 `$HOME`，而本地路径在远端没有意义。
+
+#### 4.2 控制
+
+| 动作 | 命令 |
+| --- | --- |
+| 当前目录 | `tmux display-message -p -t homebase '#{pane_current_path}'` |
+| 列表 | `tmux list-windows -t homebase -F '#{window_index} #{window_active} #{window_name}'` |
+| 新建 | `tmux new-window -t homebase [-c DIR] -P -F '#{window_index}'` |
+| 改名 | `tmux rename-window -t homebase:IDX NAME` |
+| 删除 | `tmux kill-window -t homebase:IDX`（最后一个拒绝执行） |
+| 切换 | `tmux select-window -t homebase:IDX` |
+
+session 还不存在时 `list-windows` 会失败（`can't find session`）。这不是错误：返回空列表，前端显示「连接中」，PTY 连上就会把 session 建出来。
+
+**新建窗口必须落在当前活动窗口的目录。** `new-window` 不带 `-c` 时，继承的是 **执行这条命令的进程**（homebase 服务）的 cwd，而不是 session 里活动 pane 的目录 —— 结果就是不管用户当前在哪个窗口、cd 到了哪里，新窗口永远落在同一个无关目录。所以 `NewWindow` 先用 `display-message` 读 `#{pane_current_path}`，再把它喂给 `-c`。这次查询是 **best-effort**：任何失败（session 还不存在、tmux 抽风）都退化成不带 `-c`，而不是让新建失败。代价是每次新建多一次 tmux 往返。
+
+#### 4.3 本机与远程
+
+本机：`exec.Command(tmuxPath, args...)`，PATH 补上 `/opt/homebrew/bin` 等。tmux 找不到 → `enotmux`。
+
+远程：一条 ssh，远端命令形状固定
+
+```
+exec /bin/sh -c 'PATH="$PATH:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin"; export PATH; t=`command -v tmux 2>/dev/null`; if [ -z "$t" ]; then echo HOMEBASE_ENOTMUX; exit 127; fi; exec "$t" <每个参数都 POSIX 单引号包过>'
+```
+
+- 外层必须是 `exec /bin/sh -c '…'`，因为登录 shell 可能是 fish/csh。
+- 内层是 POSIX。用反引号不用 `$( )`（csh 会在某些引号里插值 `$(`）。
+- 每个参数先正则校验，再 POSIX 单引号转义。
+
+#### 4.4 固定 ssh flags
+
+```
+-tt                              （仅 PTY 通道；控制通道不要 -tt）
 -o BatchMode=yes
 -o NumberOfPasswordPrompts=0
 -o ConnectTimeout=10
 -o ServerAliveInterval=15
 -o ServerAliveCountMax=3
+-o ControlMaster=auto
+-o ControlPath=<tmp>/homebase-%C
+-o ControlPersist=60
 ```
 
-- `-tt`：`ssh host command` 默认不分配远端 tty；TUI 没有 tty 会乱。Go 这边 stdin 已是 pty slave，`-t` 通常够，`-tt` 更硬。
-- `BatchMode=yes`：密钥失败立刻退出，而不是在 pty 里卡在 `Password:`（前端会变成「卡住的黑屏」）。
-- **不加** `StrictHostKeyChecking=no`。未知主机 → ssh 失败 → `code=ssh_hostkey`。操作者在 Mac mini 上对该 host 执行一次 `ssh`（`ssh-copy-id` 已经包含这一步）。
+`ControlPath` 是 unix socket，macOS 上限 104 字节。用 `os.TempDir()` 拼出来若超长则退回 `/tmp`。
 
-不要用 `-t` 改成无 tty 的 `-T`。不要加 `RequestTTY=no`。
-
-#### 4.3 远端命令（必须按此形状）
-
-`ssh user@host "$cmd"` 把 `$cmd` 交给 **用户的登录 shell**。登录 shell 可能是 zsh/bash，也可能是 fish/tcsh。
-
-`{ echo X; exit 127; }` 在 csh 里会 **检测失败后继续执行后面的命令**。`$( )` 在部分 csh 引号里仍被改写。
-
-因此外层只能是所有壳都能解析的一句：
-
-```sh
-exec /bin/sh -c 'PATH="$PATH:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin"; export PATH; t=`command -v tmux 2>/dev/null`; if [ -z "$t" ]; then echo HOMEBASE_ENOTMUX; exit 127; fi; exec "$t" new-session -A -s '"$quoted"
-```
-
-- PATH 前缀解决 Homebrew / MacPorts / `~/.local`。
-- 找不到 tmux：stdout 一行 `HOMEBASE_ENOTMUX`，exit 127。UI 用专门文案，不要「连接失败」。
-- `new-session -A -s NAME`：有则 attach，无则创建。
-- **禁止** `-D`（踢掉其他 client）。
-- **禁止** `-CC`。
-- session 名先走 ident 正则，再 POSIX 单引号包一层，然后拼进 `-c` 脚本。Go 侧是 `exec.Command(ssh, flags..., user+"@"+host, remote)`，`remote` 是 **一个** argv，不会再被本地 shell 解释。
-
-#### 4.4 校验（API 写入口 + spawn 前各一次）
+#### 4.5 校验
 
 | 字段 | 规则 |
 | --- | --- |
-| `name` | 去空白后 1–64，无控制字符 |
-| `host` | hostname / IPv4 / IPv6 / MagicDNS；禁止空白和 `@;|&$\`` 与换行 |
-| `user` | `^[A-Za-z0-9._-]+$` 1–32 |
-| `session_name` | `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` |
+| `label` | 1–64 字符，trim，无控制字符 |
+| `host` | DNS label / IPv4 / IPv6 / MagicDNS。无空格、`@`、`;`、`\|`、`&`、`$`、`` ` ``、换行 |
+| `user` | `^[A-Za-z0-9._-]+$`，1–32 |
+| window name | 1–64 字符，无控制字符（tmux 允许空格） |
+| window index | `^[0-9]{1,4}$` |
 
-非法字段 400，不 spawn。
-
-#### 4.5 本机 Window
-
-V1 **全部走 ssh**，包括「Homebase 这台 Mac mini 自己」。配 `user@localhost` 或 Tailscale 名。不做 `transport: local`，避免两条代码路径。
+API 写入口校验一次，`exec.Command` 之前再校验一次。
 
 ### 5. WebSocket 协议
 
-URL：`GET /ws/windows/{id}`，同源。未知 id：关闭码 **4404**，reason `unknown window`。不设连接数限额，不使用 4403。
+`GET /ws/hosts/{id}`，同源。未知 host id：close **4404**，reason `unknown host`。无连接数限额。
 
 | 方向 | 帧 | 内容 |
 | --- | --- | --- |
-| C→S | binary | stdin 原字节 |
-| C→S | text | `{"type":"resize","cols":120,"rows":40}` |
-| C→S | text | `{"type":"ping"}` |
-| S→C | binary | stdout 原字节 |
-| S→C | text | `{"type":"status","state":"…","code":"…","message":"…"}` |
-| S→C | text | `{"type":"pong"}` |
+| client → server | binary | 原始 stdin 字节 |
+| client → server | text JSON | `{"type":"resize","cols":120,"rows":40}` |
+| client → server | text JSON | `{"type":"ping"}` |
+| server → client | binary | 原始 stdout 字节 |
+| server → client | text JSON | `{"type":"status","state":"connecting\|connected\|disconnected\|error","code":"…","message":"…"}` |
+| server → client | text JSON | `{"type":"pong"}` |
 
-`state`：`connecting` | `connected` | `disconnected` | `error`。
+未知 `type` 忽略。JSON 畸形 debug 日志后忽略。resize 的 cols/rows `< 1` 或 `> 512` 忽略。
 
-- 数据面禁止 JSON 包一层 base64（CPU + 延迟 + 易被改成 string）。
-- Go：`[]byte` 原样 `NextWriter(BinaryMessage)`。禁止 `string(buf)`。
-- JS：`socket.binaryType = "arraybuffer"`，`term.write(new Uint8Array(evt.data))`。键盘：`term.onData` 用 `TextEncoder` 转 bytes 再 `send`（xterm 给出的是 JS string，这是输入侧唯一的 string→bytes；输出侧禁止反向）。
-- `cols`/`rows` 范围 1–512，否则忽略。
-- 未知 `type`：忽略（向前兼容）。
+重连时前端先 `term.reset()` 再开新 WS，tmux 重绘。不回放本地 buffer。
 
-连上后、FitAddon 第一次算出尺寸后、以及之后每次 pane resize，都发 resize。后端 `pty.Setsize`。
+### 6. 错误码
 
-心跳：客户端 20s ping。有 JSON ping 是为了让 UI 在「半开」的代理上更快死掉并重连。
-
-### 6. 前端结构
-
-无打包器。`web/` 下静态文件被 `//go:embed all:web`。
-
-```
-web/index.html
-web/css/app.css
-web/js/app.js         拉配置、渲染列表、CRUD、启动所有 session
-web/js/session.js     单 Window：WS、backoff、status
-web/js/terminal.js    xterm + FitAddon + ResizeObserver
-web/vendor/xterm/     xterm.js 5.5.0 / xterm.css / addon-fit
-```
-
-页面加载：
-
-1. `GET /api/windows`
-2. 对每个 Window 建 xterm 实例 + `Session.connect()`（可并行，不要故意串行化成「点谁连谁」）
-3. 选中 `order` 最小的一项作为可见终端
-4. `ResizeObserver` 盯右侧 pane
-
-空列表：侧栏空态 + 「添加 Window」入口。不预置样例行。
-
-隐藏策略：所有终端 wrapper 叠在 pane 里，非当前项 `visibility: hidden; pointer-events: none`，**仍占同样宽高**。禁止 `display: none`。切换时对当前项 `fit()` 并立刻 resize。隐藏项也用同一个 pane 尺寸发过一次 resize，避免后台 vim 按 80×24 排版。
-
-重连：
-
-```
-delay = min(30000, 1000 * 2^attempt)   // attempt 从 0 开始时第一次等 1s
-```
-
-`connected` 后 `attempt = 0`。重连前 `term.reset()`。backoff 在 `session.js`，抽纯函数方便测。
-
-列表 UI 每行：名称、host、状态点。状态文案用中文短词：**已连接 / 连接中 / 已断开 · 重试中 / 出错**。出错时行内展示 `message`（可复制），`enotmux` 与 `ssh_hostkey` 用固定帮助句（见 §7）。
-
-CRUD：侧栏按钮打开小面板（不是独立路由）。保存成功后：
-
-- POST → 插入行并立刻 `connect`
-- PUT 若 host/user/session_name 变了 → 关旧 WS、`reset`、新连
-- DELETE → 关 WS、删行，**不**调用任何 tmux kill
-
-### 7. 错误如何露出
-
-用户看到「连不上」时第一反应是「我的会话没了」。文案必须把 **tmux 还在 / 从来没在 / 已经没了** 说清楚。
-
-| code | 判定 | 对用户说什么 |
+| code | 含义 | UI |
 | --- | --- | --- |
-| `ssh_auth` | stderr 含 `Permission denied` | 这台 Homebase 机器上对该 host 做 `ssh-copy-id`。会话还在远端，只是没进去。 |
-| `ssh_hostkey` | `Host key verification failed` | 在 Homebase 机器上对该 host 手动 `ssh` 一次，确认指纹。 |
-| `ssh_timeout` | `Connection timed out` / ConnectTimeout | 主机没开机或 Tailscale 没通。 |
-| `ssh_refused` | `Connection refused` | sshd 没起来。 |
-| `enotmux` | 输出含 `HOMEBASE_ENOTMUX` | 远端没装 tmux。若以前能连，session 已随 tmux server 消失；装好后会是新 session。给 `brew install tmux` 复制按钮。不代替用户在远端安装。 |
-| `pty_spawn` | `pty.Start` 失败 | 本机 ssh/pty 问题，查 Homebase 日志。 |
-| `ws_closed` | 读 WS 结束 | 状态切到「已断开 · 重试中」。 |
+| `ssh_auth` | Permission denied | 提示 ssh-copy-id（仅远程 host） |
+| `ssh_hostkey` | Host key verification failed | 在 Homebase 机器上手动 ssh 一次 |
+| `ssh_timeout` | ConnectTimeout | 主机没开机 / Tailscale 不通 |
+| `ssh_refused` | connection refused | sshd 没起来 |
+| `enotmux` | 本机或远端没有 tmux | 装 tmux |
+| `pty_spawn` | 本地 spawn 失败 | 看进程日志 |
+| `ws_closed` | socket 没了 | 重连中 |
+| `unknown` | 其它 | 显示裁剪过的 stderr |
 
-`message` 允许带 ssh 的一行 trimmed stderr，截断到 200 字节，打日志同样截断。禁止把整段 pty 流量写进 log。
+本机 host 只可能出现 `enotmux` / `pty_spawn` / `ws_closed` / `unknown`。
+
+### 7. 前端结构
+
+- **一个** xterm.js 实例、**一条** WebSocket。切 host 或切 window 都不新建 xterm。
+- 左上 host 下拉：第一项固定「本机」，不可编辑不可删；其余是配置里的远程 host，可增删改。
+- 侧栏 = 当前 host 的 tmux window 列表。点一项 → `PUT …/windows/{idx}` 带 `{"active":true}`；加号 → `POST …/windows`；改名 → `PUT` 带 `{"name":"…"}`；删除 → `DELETE`（只剩一个时按钮置灰）。
+- 每次控制操作成功后立即重新拉一次列表。另外 3s 轮询一次，`document.visibilityState === "hidden"` 时暂停。
+- `ResizeObserver` 挂在终端容器上，debounce ~32ms，`fit()` 后发 resize。
+- 重连退避：1s → 2s → 4s → 8s → 16s → 30s，停在 30s，永不放弃。收到 `state=connected` 重置。
+- 字体用 `system-ui` / `ui-monospace`，不 vendor 字体文件。
 
 ### 8. 监听地址
 
-启动解析顺序：
+沿用 V1，未改动：
 
-1. `-listen` 或 `listen_addr`（可 `host` 或 `host:port`）
-2. 否则 `exec.CommandContext(2s, "tailscale", "ip", "-4")`，解析第一行 unicast IPv4
-3. 否则 `127.0.0.1`，并打一条明确日志：其它设备连不进来
-4. 端口：`listen_port` / `-port`，默认 **7681**
-
-`tailscale` 可执行文件查找顺序：`PATH` 里的 `tailscale`，然后 `/opt/homebrew/bin/tailscale`、`/usr/local/bin/tailscale`。都找不到或探测失败 → 步骤 3。
-
-若解析结果是未指定地址（`0.0.0.0`、`::`、空 host）：
-
-- `allow_public_bind != true` → **拒绝启动**，exit ≠ 0，错误写 stderr
-- `true` → 启动并打 **WARN**
-
-`-listen 0.0.0.0:7681` 同样受 `allow_public_bind` 约束，flag 不能绕开门闩。
-
-只探测 IPv4 Tailscale。
+1. `-listen` / `listen_addr` 若设置则用它。
+2. 否则 `tailscale ip -4`（2s 超时；PATH，然后 `/opt/homebrew/bin`、`/usr/local/bin`）。
+3. 否则 `127.0.0.1`，并 warn 别的设备连不上。
+4. 端口来自 `-port` / 配置，默认 `1990`。
+5. 解析结果是未指定地址（`0.0.0.0`、`::`）时 **拒绝启动**，除非 `allow_public_bind: true`。`-listen` 不能绕过。
 
 ### 9. 配置与 REST
 
-路径：`$XDG_CONFIG_HOME/homebase/config.json`，默认 `~/.config/homebase/config.json`。`-config` 覆盖。
+`$XDG_CONFIG_HOME/homebase/config.json` → `~/.config/homebase/config.json`，`-config` 覆盖。缺文件则建目录 0700、写文件 0600。
 
-第一次启动文件不存在：
+```json
+{
+  "version": 2,
+  "listen_addr": "",
+  "listen_port": 1990,
+  "allow_public_bind": false,
+  "auth": { "enabled": false, "username": "", "password_bcrypt": "" },
+  "hosts": []
+}
+```
 
-1. 创建父目录 `0700`（已存在则不管）
-2. 原子写入默认文件 `0600`：`version: 1`，`listen_addr: ""`，`listen_port: 7681`，`allow_public_bind: false`，`auth.enabled: false`，`windows: []`
-3. 用这份配置继续跑
+`hosts` 里只有用户加的远程 host，本机不在里面：
 
-文件存在但 JSON 坏掉或 `version` 高于 1：拒绝启动，exit ≠ 0，不要覆盖坏文件。
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "label": "Mac mini",
+  "user": "yourname",
+  "host": "mac-mini",
+  "order": 1
+}
+```
 
-原子写：同目录 `config.json.tmp` → `Write`+`Sync` → `Rename`。进程内 `sync.Mutex`。不考虑多进程同时写（单用户工具，不要跑两份）。
+- `id` 服务端生成；POST 忽略客户端给的 id。保留 id `local` 给本机，不可被占用。
+- 写：同目录临时文件 → `fsync` → `rename`。读改写全程持锁。
+- 未知字段忽略（v1 的 `windows` 就这样被丢掉）。缺 `version` 当 2。
+- 文件损坏或 `version > 2`：拒绝启动，不覆盖。
 
-Schema 见 AGENT.md。`version` 缺省当 1。未知字段忽略。
+REST（JSON，同源）：
 
-REST 前缀 `/api`。JSON。`id` 服务端 UUID，POST 忽略客户端 id。`order` 为整数，列表按 `order` 再 `name` 排。`PUT /api/windows/reorder` 接收 `{"ids":[...]}`，按数组下标重写 `order`。
+```
+GET    /api/health                        {ok:true, listen:"…"}
+GET    /api/hosts                         → [{id,label,user,host,local}]
+POST   /api/hosts                         {label,user,host}
+PUT    /api/hosts/{id}                    {label,user,host}      id=local → 400
+DELETE /api/hosts/{id}                                           id=local → 400
+GET    /api/hosts/{id}/windows            → {windows:[{index,name,active}]}
+POST   /api/hosts/{id}/windows            → {index}
+PUT    /api/hosts/{id}/windows/{index}    {name:"…"} 或 {active:true}
+DELETE /api/hosts/{id}/windows/{index}    只剩一个 → 400
+```
 
-变更不重启进程：Store 更新后，前端自己拆/建 WS。后端无「按 id 常驻的 session 表」——因为 Model A 下 session 表就是当前 WS 集合。
+变更类请求要求 `Origin` 的 host 与请求 host 一致（Basic Auth 下的 CSRF 保险）。缺 `Origin`（curl）放行。
 
-CSRF：Basic Auth 会被浏览器自动带上。对 `POST/PUT/DELETE` 要求 `Origin` 的 host 与请求 host 一致；无 Origin 的非浏览器客户端（curl）放行。
-
-`GET /api/health`：进程活着、当前 bind 地址。与其它路由走同一套 auth。
+远程 host 上限 **16**。POST 超限返回 400。
 
 ### 10. 认证
 
-默认关。开的时候全站（静态、API、WS upgrade）HTTP Basic。密码只存 bcrypt。提供 `homebase hash-password` 从 stdin 读一行明文，stdout 打 hash，明文不进 argv、不进日志。
+默认关。`auth.enabled` 时：
 
-比较：`subtle.ConstantTimeCompare` 用户名；密码 `bcrypt.CompareHashAndPassword`。
+- 所有路由都要 Basic Auth，包括 WS 升级。
+- 密码存 bcrypt，`bcrypt.CompareHashAndPassword`；用户名常数时间比较。
+- 浏览器已经为 `GET /` 发过 Basic，同源 `new WebSocket` 会复用。不要把 token 放进 query。
+- `homebase hash-password` 从 stdin 读一行，stdout 打 bcrypt。不要把密码放进 argv。
 
-不加 cookie session。不加 WS 首帧鉴权。不加 query token。
+### 11. UI 视觉
 
-### 11. UI 视觉（实现时遵守，不另开设计稿）
-
-对象：家庭机柜上的一块小控制面板，不是 SaaS 仪表盘，也不是「黑底酸绿黑客终端」模板。
-
-- 底：暖硬炭 `#1a1916`，面板 `#25231f`，细分隔 `#3a3732`
-- 状态：钨丝黄 `#d4a017` 连接中，珐琅绿 `#3d8c6e` 已连接，氧化红 `#b44532` 出错
-- UI 字体：`system-ui, sans-serif`；host / session 名：`ui-monospace, Menlo, monospace`。不引入 webfont，不 vendor 字体文件
-- 签名元素：左侧每一行是「铭牌」——名称、host 作序列号、状态是小圆点 LED，不是徽章胶囊
-- 右侧终端区域不要套大圆角卡片、不要阴影、不要渐变；xterm 贴齐 pane
-- 动效：状态点可以极弱呼吸，其它不动。尊重 `prefers-reduced-motion`
-- 文案：用「Window / 已连接 / 重试中」，不要「实例」「节点」「工作区」
-
-移动端：侧栏可折叠，但 V1 主场景是桌面浏览器。不要为此上响应式框架。
-
----
-
-## API / Interface Changes
-
-绿场，无旧 API。契约以 AGENT.md「Protocol / REST / Config schema」为准。破坏性改动加 `version: 2` 并在加载时拒绝未知高版本（明确报错，不静默）。
-
----
-
-## Data Model
-
-唯一持久化：`config.json`。无迁移框架。V2 若加字段，给默认值即可。Window 的 `id` 一旦发出去就不能改（WS URL 用它）。
-
-不持久化：连接状态、pty、终端滚动缓冲、重连计数。
+深色、暖调、低对比噪音。左侧栏窄，主区就是终端。移动端侧栏抽屉化，靠汉堡按钮开合——这正是「不要求用户按 `C-b`」的主要理由。
 
 ---
 
 ## Alternatives Considered
 
-### A. 服务端常驻 PTY（Model B）
+### A. 固定一个 session，但侧栏每项各开一个 xterm/WS
 
-多标签页共享同一份输出，关浏览器 ssh 还在。代价：多客户端尺寸、无客户端时的生命周期、和「重连再 `tmux new -A`」不符。**不采用。**
+不行。多个 tmux client attach 同一个 session 会共享 active window：在一个里切窗口，其它全跟着切，打字互相串。侧栏会变成 N 个一模一样的镜像。
 
-### B. `golang.org/x/crypto/ssh` 替代 `/usr/bin/ssh`
+### B. grouped session（`new-session -t homebase -s view-<id>`）
 
-测试好写、无外部二进制。代价：重做 ssh config / agent / ProxyJump / known_hosts。家庭场景这些比单元测试重要。**不采用。** 测试用 `Dialer` 接口绕开。
+能让每个视图独立切换窗口，但会留下一堆 view session 需要在断开时清理，且用户心智里凭空多出一层。收益不抵复杂度。
 
-### C. nhooyr/coder websocket
+### C. 不要侧栏，全交给 tmux 状态栏和 `C-b`
 
-Context 友好。gorilla 在「binary 数据 + text 控制」的终端桥例子更多，出问题更好搜。**V1 用 gorilla。** 以后若 gorilla 停更再换，协议不变。
+代码最少，最「dumb PTY 桥」。否掉的理由只有一个但足够硬：手机上点一下比按 `C-b 2` 容易得多，而移动端正是这个产品的主场景。
 
-### D. SQLite
+### D. `tmux -CC` control mode
 
-查询、迁移、备份都更重。配置是一张小列表。**不采用。**
+会取消服务端绘制，网页里就跑不了 tmux 自己的 UI 和任意 TUI。禁用。
 
-### E. Vite + 前端打包
+### E. 控制通道复用 PTY（往 PTY 写 `C-b` 序列）
 
-xterm 用 ESM 更「现代」。代价：构建链、Node、和「一个二进制」冲突。**不采用。** vendor 文件即可。
+等于替用户打字：用户正在 vim 里，注入的按键会进 vim。必须是独立进程。
 
-### F. 默认听 `0.0.0.0`，靠 Tailscale ACL
+### F. 服务端常驻 PTY（Model B）
 
-太容易在非 Tailscale 网卡上露出。**拒绝启动优于警告后继续。**
+无客户端时白占 ssh 连接，还要自己做输出环形缓冲——而 tmux 已经做了这件事。
 
-### G. Cookie token 而非 Basic Auth
+### G. `golang.org/x/crypto/ssh` 替代 `/usr/bin/ssh`
 
-要 CSRF、要 Secure cookie、WS 还要带 cookie。Basic 在「可选、默认关、同源」下更少代码。**V1 Basic。**
+要自己实现 `~/.ssh/config`、ProxyJump、agent、known_hosts、ControlMaster。得不偿失。
 
-### H. 缺文件时不落盘，只在内存里用默认值
+### H. SQLite
 
-第一次启动后操作者找不到配置文件可改。**不采用。** 缺文件就写一份空默认。
+配置就十几行，原子 rename 足够。
 
-### I. WS 连接数限额（曾写 4403）
+### I. Vite + 前端打包
 
-多一个要调的数字，还和「多浏览器 = 多条 ssh」打架。**不采用。** 只对未知 id 关 4404。
+部署机不装 Node 是硬要求。
+
+### J. 默认听 `0.0.0.0` 靠 Tailscale ACL 兜底
+
+一个配置失误就等于公网 shell。默认必须安全。
 
 ---
 
 ## Security & Privacy
 
-威胁模型：单用户家庭工具。攻击者可能在 (1) 同一 Tailscale tailnet 的其它设备，(2) 误绑公网之后的扫描器，(3) 配置里的注入字段。
-
-| 威胁 | 缓解 |
-| --- | --- |
-| 公网误暴露 | 默认非 `0.0.0.0`；未指定地址必须 `allow_public_bind` |
-| 尾网里其它人打开这个 UI | 可选 Basic Auth；文档建议开启 |
-| 配置字段命令注入 | ident 白名单 + argv 数组 + 远端 `/bin/sh -c` 内单引号 |
-| 密码落盘 / 日志 | 不接受 SSH 密码；Basic 只存 bcrypt；日志不打 Authorization、不打 PTY |
-| 主机密钥钓鱼 | 不关 StrictHostKeyChecking |
-| CSRF 改配置 | Origin 校验 |
-| XSS | 无用户 HTML；xterm 画在 canvas；REST 字段做 textContent 不走 innerHTML |
-| 删 Window 误杀工作区 | 只删配置 + 本地 ssh，不向远端发 kill-session |
-
-不实现 WAF、不实现 2FA、不做审计日志文件切割以外的安全产品化。
-
----
+- SSH：只用已有密钥。不接受、不存储、不提示、不记录密码。`BatchMode=yes`，不关 `StrictHostKeyChecking`，没有 `sshpass`。
+- 本机通道根本不碰 ssh，攻击面更小——它以 Homebase 进程自身的身份跑 tmux。**这意味着能打开页面的人就能在这台机器上执行任意命令**，所以监听地址闸门和 Basic Auth 是唯一的边界。
+- 默认拒绝绑未指定地址。
+- 日志里绝不出现 PTY 内容、token、bcrypt、Authorization 头。ssh stderr 裁剪到 200 字节且只取首行。
+- 删 host 配置只影响本地；不碰远端 tmux。
+- 删 window 用 `kill-window`，永不 `kill-session` / `kill-server`；最后一个 window 拒绝删除。
+- 配置目录 0700，文件 0600。
 
 ## Observability
 
-日志：stderr，文本，默认 INFO。
-
-打：listen 地址、window id、host、user、session_name、ssh exit code、status code、WS 开/关。
-
-不打：PTY 字节、环境变量里的密钥、bcrypt、Authorization。
-
-无 metrics 端口（避免又开一个听口）。无第三方 APM。
-
-调试：`-log-level debug` 可打 resize 与重连 attempt 数字，仍不打 payload。
-
----
-
-## Rollout
-
-家庭软件，没有灰度。发布 = 换二进制，config 向前兼容。
-
-回滚：换回旧二进制。JSON 只追加字段。
-
-建议运行：`launchd` 用户 agent。README 在 PR5 给 `launchd` 示例，V1 不写 installer。
-
----
+- 启动时 INFO 打一次实际绑定地址和配置路径。
+- WS 开/关各一条 INFO，带 host id 和 label，不带任何 PTY 字节。
+- 控制命令失败打 INFO，带裁剪过的 stderr。
+- resize、畸形 JSON 走 DEBUG。
 
 ## Risks
 
-| 风险 | 严重度 | 缓解 |
-| --- | --- | --- |
-| 远端没 tmux / PATH 不对 | 高（第一次用必撞） | `HOMEBASE_ENOTMUX` 专用 UI + PATH 前缀 |
-| FitAddon 0×0 | 高（TUI 错位） | 禁止 `display:none`；connect 时带 pane 尺寸 |
-| 字节当 string | 高（乱码/坏 CSI） | AGENT 硬约束 + review |
-| 误杀 tmux session | 高 | Kill 只针对 ssh pgid；测试断言不调用 kill-session |
-| 多 client 抢尺寸 | 中 | 文档化为 tmux 行为，不在 Homebase 仲裁 |
-| `tailscale` 不在 PATH（GUI 启动） | 中 | 探测常见绝对路径；失败则 loopback 并提示用 `-listen` |
-| 浏览器后台冻结定时器，退避失真 | 低 | 唤醒后立即重连一次，再进入 backoff |
-| xterm 版本 API 变 | 低 | 钉 5.5.0 进 vendor，升级单独改脚本 |
-
----
-
-## Frozen (was Open Questions)
-
-实现按此表走。要改先改 DESIGN / AGENT，再动代码。
-
-| 项 | 决定 |
+| 风险 | 缓解 |
 | --- | --- |
-| 默认端口 | **7681** |
-| localhost 免 ssh | **不要**，统一 ssh |
-| 认证 | **HTTP Basic Auth**，默认关 |
-| 侧栏拖拽排序 | V1 不做。`order` 整数 + `PUT /api/windows/reorder` 留给 curl / 以后的 UI |
-| 模块路径 | `github.com/yanghanqing/homebase` |
-| 缺省配置 | 文件不存在则写入空默认并继续 |
-| WS 关闭码 | 未知 id → **4404**；无 4403、无连接数限额 |
-| 字体 | 系统栈，不 vendor |
-| xterm.js | **5.5.0** |
-
----
+| 本机通道让「能打开页面 = 能执行命令」 | 默认只绑 Tailscale / loopback；同 tailnet 有别人时建议开 Basic Auth。README 明写。 |
+| 远程 host 每次点击一条 ssh，延迟明显 | `ControlMaster=auto` + `ControlPersist=60` 复用连接。 |
+| `ControlPath` 超过 unix socket 104 字节上限 | 拼完检查长度，超长退回 `/tmp/homebase-%C`。 |
+| 用户在终端里手敲 `C-b c`，侧栏不同步 | 3s 轮询；页面不可见时暂停。 |
+| 关掉状态栏影响从 iTerm attach 同一 session 的视图 | 已知且接受：这是 session 级选项。用户真需要可在自己的 tmux 里 `set status on`。 |
+| 删到最后一个 window 把 session 一起干掉 | 前端置灰 + 服务端 400。 |
+| 进程没有 UTF-8 locale（launchd 就是这样）导致 `-F` 输出被改写 | 分隔符只用空格，不用 tab —— tmux 会把 `-F` 里的控制字符写成 `_`；同时 `ExecEnv` 在父进程没有 `LANG`/`LC_*` 时补一个 `LANG=en_US.UTF-8`。有 live 回归测试。 |
+| tmux 版本差异导致 `-F` 格式串不识别 | 用的都是 tmux 1.8+ 就有的 `#{window_index}` / `#{window_name}` / `#{window_active}`。 |
 
 ## References
 
-- [xterm.js](https://github.com/xtermjs/xterm.js) 5.5.0 + FitAddon
-- [creack/pty](https://github.com/creack/pty)
-- [gorilla/websocket](https://github.com/gorilla/websocket)
-
----
-
-## PR Plan
-
-见 [`PLAN.md`](PLAN.md)。顺序：先听口与配置安全，再 PTY/WS，再前端自动连接，最后可选认证与文档。Resize 和重连不是「最后再加的 polish」，分别在 PR3 协议里和 PR4 UI 里就必须可演示。
+- tmux(1)：`new-session -A`、`list-windows -F`、`kill-window`、`rename-window`、`select-window`、`set-option -t`
+- ssh_config(5)：`ControlMaster`、`ControlPath`、`ControlPersist`、`BatchMode`
+- xterm.js 5.5.0 + `@xterm/addon-fit`、`@xterm/addon-unicode11`（后者需要 `allowProposedApi: true`）

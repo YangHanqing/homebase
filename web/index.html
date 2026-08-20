@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1916">
+  <meta name="color-scheme" content="dark">
+  <title>Homebase</title>
+  <link rel="stylesheet" href="/vendor/xterm/xterm.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="chrome" id="chrome">
+      <button type="button" class="nav-toggle" id="nav-toggle" data-i18n-aria="aria.openWindows" aria-controls="sidebar" aria-expanded="false">
+        <span class="nav-bars" aria-hidden="true"></span>
+      </button>
+      <div class="chrome-copy">
+        <div class="chrome-name">Homebase</div>
+        <div class="chrome-host" id="chrome-host"></div>
+      </div>
+      <span class="led" id="chrome-led" aria-hidden="true"></span>
+    </header>
+    <div class="shell">
+      <button type="button" class="scrim" id="scrim" data-i18n-aria="aria.closeWindows" hidden></button>
+      <aside class="sidebar" id="sidebar">
+        <header class="brand">
+          <div class="brand-row">
+            <div class="brand-mark">Homebase</div>
+            <div class="brand-actions">
+              <button type="button" class="btn-tiny" id="btn-lang" title="Language">EN</button>
+              <a class="btn-tiny" href="/settings.html" title="Settings" data-i18n-title="settings.title">⚙</a>
+            </div>
+          </div>
+        </header>
+        <div class="listhead">
+          <span class="listhead-label" data-i18n="sidebar.windows">Windows</span>
+          <span class="led" id="side-led" aria-hidden="true"></span>
+          <span class="listhead-state" id="side-state"></span>
+          <button type="button" class="btn-add" id="btn-window-add" data-i18n="sidebar.new">+ New</button>
+        </div>
+        <ul class="list" id="window-list"></ul>
+        <p class="list-msg" id="list-msg" hidden></p>
+      </aside>
+      <main class="main">
+        <div class="pane" id="pane">
+          <div class="term-wrap" id="term-wrap"></div>
+          <div class="pane-status" id="pane-status" hidden>
+            <p class="pane-status-line" id="pane-status-line"></p>
+            <p class="pane-status-help muted" id="pane-status-help"></p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal" id="rename-modal" hidden>
+    <form class="sheet" id="rename-form" autocomplete="off">
+      <h2 data-i18n="rename.title">Rename window</h2>
+      <p class="form-hint" data-i18n="rename.hint">A renamed window stops following the running command's own name.</p>
+      <input type="hidden" id="r-index">
+      <label data-i18n="rename.name">Name <input id="r-name" required maxlength="64"></label>
+      <p class="form-err" id="rename-form-err" hidden></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="btn-rename-cancel" data-i18n="common.cancel">Cancel</button>
+        <button type="submit" class="btn-solid" data-i18n="common.save">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="/vendor/xterm/xterm.js"></script>
+  <script src="/vendor/xterm/addon-fit.js"></script>
+  <script src="/vendor/xterm/addon-unicode11.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/backoff.js"></script>
+  <script src="/js/terminal.js"></script>
+  <script src="/js/session.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,6 +1,8 @@
 /homebase
 *.exe
-*.test
-*.out
-dist/
 .DS_Store
+
+# Internal design/contract docs — not part of the public distribution.
+AGENT.md
+docs/DESIGN.md
+docs/DISTRIBUTION.md

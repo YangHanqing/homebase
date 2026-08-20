@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1916">
+  <meta name="color-scheme" content="dark">
+  <title>Homebase — Settings</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/settings.css">
+</head>
+<body class="settings-body">
+  <main class="settings-page">
+    <header class="settings-header">
+      <a class="btn-ghost" href="/" data-i18n="s.back">&larr; Back</a>
+      <button type="button" class="btn-tiny" id="btn-lang">EN</button>
+    </header>
+    <h1 data-i18n="s.title">Settings</h1>
+
+    <div class="settings-notice" id="loopback-notice" hidden>
+      <p data-i18n="s.loopbackOnly">Settings can only be viewed and changed from a browser running on this machine (127.0.0.1). Open this page locally to make changes.</p>
+    </div>
+
+    <section class="settings-card">
+      <h2 data-i18n="s.httpTitle">This runs over plain HTTP, not HTTPS</h2>
+      <p data-i18n="s.httpBody">Nothing encrypts the traffic between your browser and Homebase. Whether that's fine depends entirely on the network you expose it to:</p>
+      <ul class="settings-list">
+        <li><strong data-i18n="s.httpLocalLabel">On 127.0.0.1 (this machine only):</strong> <span data-i18n="s.httpLocalBody">safe — traffic never leaves the machine.</span></li>
+        <li><strong data-i18n="s.httpTrustedLabel">On a trusted range below:</strong> <span data-i18n="s.httpTrustedBody">safe only if that range really is an already-encrypted overlay network (Tailscale, WireGuard, Headscale, ZeroTier, ...). Homebase cannot verify this — it's your own assertion.</span></li>
+        <li><strong data-i18n="s.httpLanLabel">On any other network (LAN, public/hotel/office Wi-Fi):</strong> <span data-i18n="s.httpLanBody">do not enable this. Anyone else on that network could potentially intercept your session and gain full control of this machine — the same level of access as sitting at its keyboard.</span></li>
+      </ul>
+    </section>
+
+    <section class="settings-card">
+      <h2 data-i18n="s.accessTitle">Access</h2>
+      <p class="form-hint" data-i18n="s.accessHint">After saving, run <code>homebase restart</code> on this machine.</p>
+      <div class="settings-radios" id="access-radios">
+        <label class="settings-radio">
+          <input type="radio" name="access" value="local">
+          <span>
+            <strong data-i18n="s.accessLocal">Local only</strong>
+            <small data-i18n="s.accessLocalBody">127.0.0.1 only. Nothing leaves this machine. Default and safest.</small>
+          </span>
+        </label>
+        <label class="settings-radio">
+          <input type="radio" name="access" value="private">
+          <span>
+            <strong data-i18n="s.accessPrivate">Trusted range</strong>
+            <small data-i18n="s.accessPrivateBody">Binds an address inside the trusted ranges below (e.g. your Tailscale/WireGuard IP).</small>
+          </span>
+        </label>
+        <label class="settings-radio settings-radio-danger">
+          <input type="radio" name="access" value="lan">
+          <span>
+            <strong data-i18n="s.accessLan">Local network (risk)</strong>
+            <small data-i18n="s.accessLanBody">Binds 0.0.0.0. Plain HTTP, reachable by anyone on the network. Only for networks you fully trust.</small>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <h2 data-i18n="s.rangesTitle">Trusted ranges</h2>
+      <p class="form-hint" data-i18n="s.rangesHint">One CIDR or IP per line. These are addresses you assert are already encrypted by something else (a VPN/overlay network). Examples:</p>
+      <pre class="settings-example">192.168.1.0/24
+100.64.0.0/10</pre>
+      <textarea id="ranges" rows="4" spellcheck="false" placeholder="100.64.0.0/10"></textarea>
+      <p class="form-err" id="ranges-err" hidden></p>
+    </section>
+
+    <div class="settings-actions">
+      <button type="button" class="btn-solid" id="btn-save" data-i18n="s.save">Save</button>
+      <span class="settings-status" id="save-status"></span>
+    </div>
+
+    <section class="settings-card" id="devices-card">
+      <h2 data-i18n="s.devicesTitle">Paired devices</h2>
+      <p class="form-hint" data-i18n="s.devicesHint">Browsers that can reach Homebase when Access is not Local only. Revoking logs that device out on the next request.</p>
+      <ul class="device-list" id="device-list"></ul>
+      <p class="form-hint" id="device-empty" hidden data-i18n="s.devicesEmpty">No devices paired yet. After switching Access off Local only, run <code>homebase pair</code> on this machine.</p>
+    </section>
+
+    <div class="settings-ack" id="lan-ack" hidden>
+      <label>
+        <input type="checkbox" id="ack-checkbox">
+        <span data-i18n="s.ackLan">I understand this exposes Homebase over plain HTTP to my local network, and that anyone on that network could gain full control of this machine.</span>
+      </label>
+    </div>
+  </main>
+
+  <script src="/js/i18n.js"></script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>
