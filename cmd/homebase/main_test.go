@@ -33,6 +33,15 @@ func TestHelpListsPublicCommandsOnly(t *testing.T) {
 	}
 }
 
+func TestZhLocale(t *testing.T) {
+	if !zhLocale("zh_CN.UTF-8") || !zhLocale("zh-Hans") {
+		t.Fatal("expected Chinese locales")
+	}
+	if zhLocale("en_US.UTF-8") || zhLocale("C") || zhLocale("") {
+		t.Fatal("expected non-Chinese")
+	}
+}
+
 func TestVersionStringNotEmpty(t *testing.T) {
 	if s := versionString(); s == "" {
 		t.Fatal("version must never be empty")

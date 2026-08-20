@@ -98,32 +98,26 @@ func TestLiveControlChannel(t *testing.T) {
 	}
 }
 
-// TestLiveNewWindowInheritsActivePanePath is the regression test for the real
-// bug: without -c, tmux gives a new window the cwd of whatever process ran
-// `new-window` — the homebase server — not the directory the user is actually
-// sitting in. The test's own cwd is the package directory, so a new window
-// landing in dir proves the path came from the active pane and not from us.
-func TestLiveNewWindowInheritsActivePanePath(t *testing.T) {
+// TestLiveNewWindowStartsInHome is the regression for launchd: the server
+// process cwd is often "/", and a new window without -c would land there.
+func TestLiveNewWindowStartsInHome(t *testing.T) {
 	bin, err := LocalBinary()
 	if err != nil {
 		t.Skip("tmux not installed")
 	}
-	dir, err := os.MkdirTemp("", "hbcwd")
-	if err != nil {
-		t.Fatal(err)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory")
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	// macOS hands out /var/... symlinked to /private/var; tmux reports the
-	// resolved form, so compare against that.
-	resolved, err := filepath.EvalSymlinks(dir)
+	want, err := filepath.EvalSymlinks(home)
 	if err != nil {
-		t.Fatal(err)
+		want = home
 	}
 
 	t.Setenv("TMUX_TMPDIR", privateSocketDir(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName, "-c", resolved).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName, "-c", "/tmp").CombinedOutput(); err != nil {
 		t.Skipf("cannot start a private tmux server: %v (%s)", err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command(bin, "kill-server").Run() })
@@ -138,8 +132,13 @@ func TestLiveNewWindowInheritsActivePanePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(out)); got != resolved {
-		t.Fatalf("new window cwd: got %q, want %q", got, resolved)
+	got := strings.TrimSpace(string(out))
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err == nil {
+		got = gotResolved
+	}
+	if got != want {
+		t.Fatalf("new window cwd: got %q, want home %q", got, want)
 	}
 }
 

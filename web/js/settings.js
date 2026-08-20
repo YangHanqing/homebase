@@ -5,11 +5,11 @@
   const rangesErr = document.getElementById("ranges-err");
   const saveBtn = document.getElementById("btn-save");
   const saveStatus = document.getElementById("save-status");
-  const loopbackNotice = document.getElementById("loopback-notice");
   const lanAck = document.getElementById("lan-ack");
   const ackCheckbox = document.getElementById("ack-checkbox");
   const deviceList = document.getElementById("device-list");
   const deviceEmpty = document.getElementById("device-empty");
+  let savedAccess = "private";
 
   function api(path, opts) {
     return fetch(path, opts).then(function (res) {
@@ -41,8 +41,8 @@
     return "local";
   }
 
-  function syncAckVisibility() {
-    lanAck.hidden = currentAccess() !== "lan";
+  function hideAck() {
+    lanAck.hidden = true;
   }
 
   function formatDate(iso) {
@@ -103,16 +103,16 @@
 
   function load() {
     api("/api/settings").then(function (s) {
+      savedAccess = s.access || "private";
       radios.forEach(function (r) {
         r.checked = r.value === s.access;
       });
       rangesEl.value = (s.trusted_ranges || []).join("\n");
-      syncAckVisibility();
+      hideAck();
       loadDevices();
     }).catch(function (err) {
       if (err.status === 403) {
-        loopbackNotice.hidden = false;
-        document.querySelectorAll(".settings-card, .settings-actions").forEach(function (el) {
+        document.querySelectorAll(".settings-card, .settings-actions, .settings-ack").forEach(function (el) {
           el.hidden = true;
         });
       } else {
@@ -122,14 +122,15 @@
   }
 
   radios.forEach(function (r) {
-    r.addEventListener("change", syncAckVisibility);
+    r.addEventListener("change", hideAck);
   });
 
   saveBtn.addEventListener("click", function () {
     rangesErr.hidden = true;
     saveStatus.textContent = "";
     const access = currentAccess();
-    if (access === "lan" && !ackCheckbox.checked) {
+    if (access === "lan" && savedAccess !== "lan" && !ackCheckbox.checked) {
+      lanAck.hidden = false;
       rangesErr.textContent = t("s.ackRequired");
       rangesErr.hidden = false;
       return;
@@ -144,12 +145,18 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ access: access, trusted_ranges: ranges })
     }).then(function (body) {
+      savedAccess = access;
+      hideAck();
       if (body && body.restart_required) {
         saveStatus.textContent = t("s.saved");
       } else {
         saveStatus.textContent = t("s.save");
       }
     }).catch(function (err) {
+      if (err.status === 403) {
+        saveStatus.textContent = t("s.loopbackOnly");
+        return;
+      }
       rangesErr.textContent = err.message;
       rangesErr.hidden = false;
     });

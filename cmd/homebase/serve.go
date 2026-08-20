@@ -65,7 +65,7 @@ func runServe(args []string) int {
 	})
 
 	if res.NeedsAuth() {
-		gate := &auth.Gate{Devices: r.dev, Log: log}
+		gate := &auth.Gate{Devices: r.dev, Log: log, Port: strconv.Itoa(res.Port)}
 		h = gate.Wrap(h)
 		list, _ := r.dev.List()
 		log.Info("device pairing required", "paired", len(list))
@@ -79,24 +79,29 @@ func runServe(args []string) int {
 		log.Info("loopback only: no pairing required, Host header pinned")
 	}
 
-	srv := &http.Server{
-		Addr:              res.Addr,
-		Handler:           h,
-		ReadHeaderTimeout: 10 * time.Second,
+	addrs := res.BindAddrs()
+	srvs := make([]*http.Server, 0, len(addrs))
+	errCh := make(chan error, len(addrs))
+	for _, addr := range addrs {
+		addr := addr
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           h,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		srvs = append(srvs, srv)
+		go func() {
+			log.Info("listening",
+				"addr", addr,
+				"access", string(r.cfg.Access),
+				"url", baseURL(res),
+				"trusted_range", res.Trusted,
+				"auth", res.NeedsAuth(),
+				"config", r.store.Path(),
+			)
+			errCh <- srv.ListenAndServe()
+		}()
 	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("listening",
-			"addr", res.Addr,
-			"access", string(r.cfg.Access),
-			"url", baseURL(res),
-			"trusted_range", res.Trusted,
-			"auth", res.NeedsAuth(),
-			"config", r.store.Path(),
-		)
-		errCh <- srv.ListenAndServe()
-	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -105,7 +110,9 @@ func runServe(args []string) int {
 	case <-ctx.Done():
 		shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shut)
+		for _, srv := range srvs {
+			_ = srv.Shutdown(shut)
+		}
 		return 0
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -38,9 +38,27 @@ type Result struct {
 	Trusted     bool // inside one of the configured trusted ranges
 	Unspecified bool // 0.0.0.0 / ::
 
+	// ExtraAddrs are additional host:port listeners. access=private binds the
+	// trusted-range address *and* 127.0.0.1 so this machine is always
+	// reachable without binding 0.0.0.0 (which would also open the LAN).
+	ExtraAddrs []string
+
 	// TierFallback is set when the private tier asked for a trusted-range
 	// address and none was found, so the listener dropped to loopback.
 	TierFallback bool
+}
+
+// BindAddrs is every address serve must listen on, primary first.
+func (r Result) BindAddrs() []string {
+	out := []string{r.Addr}
+	seen := map[string]bool{r.Addr: true}
+	for _, a := range r.ExtraAddrs {
+		if a != "" && !seen[a] {
+			out = append(out, a)
+			seen[a] = true
+		}
+	}
+	return out
 }
 
 // NeedsAuth reports whether pairing is required. Everything that leaves the
@@ -121,6 +139,9 @@ func Resolve(tier config.Access, flagListen, configListen string, port int, trus
 
 	res := classify(host, bindPort, trustedNets)
 	res.TierFallback = fallback
+	if tier == config.AccessPrivate && !res.Loopback && !res.Unspecified {
+		res.ExtraAddrs = []string{joinHostPort("127.0.0.1", bindPort)}
+	}
 
 	if tier == config.AccessLocal && !res.Loopback {
 		return Result{}, fmt.Errorf("refusing to bind %q: access is %q, which binds loopback only (set access to private or lan)", res.Addr, tier)

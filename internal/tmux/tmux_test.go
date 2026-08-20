@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -136,11 +137,12 @@ func TestNewWindowParsesIndex(t *testing.T) {
 	}
 }
 
-func TestNewWindowInheritsActivePanePath(t *testing.T) {
-	f := &fakeRunner{out: map[string]string{
-		"display-message": "/tmp/scratch_dir_A\n",
-		"new-window":      "1\n",
-	}}
+func TestNewWindowStartsInHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory")
+	}
+	f := &fakeRunner{out: map[string]string{"new-window": "1\n"}}
 	c := Client{R: f}
 	if _, err := c.NewWindow(context.Background()); err != nil {
 		t.Fatal(err)
@@ -151,24 +153,8 @@ func TestNewWindowInheritsActivePanePath(t *testing.T) {
 			got = args
 		}
 	}
-	if !contains(got, "-c") || !contains(got, "/tmp/scratch_dir_A") {
-		t.Fatalf("new-window did not carry the active pane's path: %q", got)
-	}
-}
-
-func TestNewWindowOmitsDashCWhenPathLookupFails(t *testing.T) {
-	f := &fakeRunner{
-		out: map[string]string{"new-window": "1\n"},
-		err: map[string]error{"display-message": ErrNoSession},
-	}
-	c := Client{R: f}
-	if _, err := c.NewWindow(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range f.seen {
-		if args[0] == "new-window" && contains(args, "-c") {
-			t.Fatalf("new-window should not carry -c when the path lookup fails: %q", args)
-		}
+	if !contains(got, "-c") || !contains(got, home) {
+		t.Fatalf("new-window should start in home %q, got %q", home, got)
 	}
 }
 

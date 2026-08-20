@@ -56,12 +56,11 @@ func TestPairThenAccess(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PairPath+"?t="+token, nil))
-	if rec.Code != http.StatusFound {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("redeem: %d", rec.Code)
 	}
-	// The token must not survive in the URL the browser keeps.
-	if loc := rec.Header().Get("Location"); loc != "/" {
-		t.Fatalf("expected redirect to /, got %q", loc)
+	if !strings.Contains(rec.Body.String(), "location.replace") {
+		t.Fatalf("pair success must replace history, got %q", rec.Body.String())
 	}
 
 	var session *http.Cookie
@@ -97,7 +96,7 @@ func TestTokenIsSingleUse(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PairPath+"?t="+token, nil))
-	if rec.Code != http.StatusFound {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("first redeem: %d", rec.Code)
 	}
 	rec = httptest.NewRecorder()
@@ -150,6 +149,35 @@ func TestRevokedDeviceLosesAccess(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after revoke: %d", rec.Code)
 	}
+
+	// A new pairing URL on the same browser must mint a fresh cookie that works.
+	token2, _, err := st.Mint(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairReq := httptest.NewRequest(http.MethodGet, PairPath+"?t="+token2, nil)
+	pairReq.AddCookie(&http.Cookie{Name: CookieName, Value: secret})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, pairReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-pair after revoke: %d", rec.Code)
+	}
+	var fresh *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == CookieName {
+			fresh = c
+		}
+	}
+	if fresh == nil || fresh.Value == "" || fresh.Value == secret {
+		t.Fatal("re-pair must set a new session cookie")
+	}
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(fresh)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("new cookie after re-pair: %d", rec.Code)
+	}
 }
 
 // API and WebSocket paths must not get an HTML page; the frontend parses these.
@@ -197,5 +225,45 @@ func TestRequireLoopbackHost(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("host %q allowed: %d", host, rec.Code)
 		}
+	}
+}
+
+func TestHealthSkipsPairing(t *testing.T) {
+	g, _ := newGate(t)
+	h := g.Wrap(okHandler())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health without cookie: %d", rec.Code)
+	}
+}
+
+func TestLoopbackPeerSkipsPairing(t *testing.T) {
+	g, _ := newGate(t)
+	g.Port = "1990"
+	h := g.Wrap(okHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Host = "127.0.0.1:1990"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("loopback peer: %d", rec.Code)
+	}
+}
+
+func TestLoopbackPeerPinsHost(t *testing.T) {
+	g, _ := newGate(t)
+	g.Port = "1990"
+	h := g.Wrap(okHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Host = "evil.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("rebinding host: %d", rec.Code)
 	}
 }

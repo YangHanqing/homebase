@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/yanghanqing/homebase/internal/devices"
 )
 
 const (
@@ -60,10 +58,21 @@ func runStart(args []string) int {
 		return 1
 	}
 
-	p := probeLoopback(r.res.Port)
-	if p.kind == probeOther {
-		fmt.Fprintf(os.Stderr, "port %d is in use by something else\n", r.res.Port)
+	port, ours, err := pickListenPort(r.res.Port)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	if !ours && port != r.res.Port {
+		if err := r.store.SetListenPort(port); err != nil {
+			fmt.Fprintf(os.Stderr, "port: %v\n", err)
+			return 1
+		}
+		r, err = setup(*configPath, "", 0)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 	}
 
 	exe, err := executablePath()
@@ -183,37 +192,23 @@ func waitReady(port int, allowServiceFallback bool) bool {
 	}
 }
 
-func printStartSuccess(r *resolved) int {
-	fmt.Println("Homebase is running.")
-	if r.res.Loopback {
-		fmt.Printf("Open  %s     (this machine only)\n", loopbackURL(r.res.Port))
-		fmt.Println()
-		fmt.Println("To reach this from another device:")
-		fmt.Printf("  1. open %s/settings.html on this machine\n", loopbackURL(r.res.Port))
-		fmt.Println("  2. set Access to Trusted range (or LAN, if you understand the risk)")
-		fmt.Println("  3. homebase restart")
-		fmt.Println("  4. homebase pair")
-		return 0
-	}
+const maxPortShift = 10
 
-	fmt.Printf("Open  %s\n", strings.TrimRight(baseURL(r.res), "/"))
-	if !r.res.NeedsAuth() {
-		return 0
+func pickListenPort(start int) (port int, ours bool, err error) {
+	port = start
+	if port <= 0 {
+		port = 1990
 	}
-	list, err := r.dev.List()
-	if err != nil || len(list) > 0 {
-		return 0
+	for i := 0; i < maxPortShift; i++ {
+		switch probeLoopback(port).kind {
+		case probeOurs:
+			return port, true, nil
+		case probeNotRunning:
+			return port, false, nil
+		}
+		port++
 	}
-	token, expires, err := r.dev.Mint(time.Now())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "could not mint a pairing link: %v\nrun 'homebase pair'\n", err)
-		return 0
-	}
-	fmt.Println()
-	fmt.Println("No devices paired yet — open this link on the device you want to authorize:")
-	printPairLinks(pairURLs(r.res, token), expires.Format("15:04:05"), devices.TokenTTL.Minutes())
-	fmt.Println()
-	return 0
+	return 0, false, fmt.Errorf("ports %d–%d are in use by something else", start, start+maxPortShift-1)
 }
 
 func xmlEscape(s string) string {

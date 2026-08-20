@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --bg: #1a1916;
   --panel: #25231f;
   --line: #3a3732;
@@ -9,6 +10,19 @@
   --led-err: #b44532;
   --ui: system-ui, sans-serif;
   --mono: ui-monospace, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f3ec;
+    --panel: #ffffff;
+    --line: #d9d4c8;
+    --ink: #1a1916;
+    --muted: #6f6a62;
+    --led-wait: #b8860b;
+    --led-ok: #2d6a50;
+    --led-err: #b44532;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -25,7 +39,6 @@ body {
   font-size: 14px;
   overflow: hidden;
   overscroll-behavior: none;
-  color-scheme: dark;
 }
 button, input { touch-action: manipulation; }
 

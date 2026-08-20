@@ -1,26 +1,56 @@
+function homebaseTermTheme() {
+  const light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  if (light) {
+    return {
+      background: "#f6f3ec",
+      foreground: "#1a1916",
+      cursor: "#b8860b",
+      selectionBackground: "#d9d4c8",
+      black: "#1a1916",
+      red: "#b44532",
+      green: "#2d6a50",
+      yellow: "#b8860b",
+      blue: "#3d5a6e",
+      magenta: "#6e4e68",
+      cyan: "#3d6a5e",
+      white: "#1a1916"
+    };
+  }
+  return {
+    background: "#1a1916",
+    foreground: "#e8e4db",
+    cursor: "#d4a017",
+    selectionBackground: "#3a3732",
+    black: "#1a1916",
+    red: "#b44532",
+    green: "#3d8c6e",
+    yellow: "#d4a017",
+    blue: "#6e8b9a",
+    magenta: "#8a6e84",
+    cyan: "#6e8f82",
+    white: "#e8e4db"
+  };
+}
+
 function homebaseCreateTerminal(container) {
   const term = new Terminal({
     cursorBlink: true,
     fontFamily: "ui-monospace, Menlo, monospace",
     fontSize: 13,
     lineHeight: 1.2,
-    theme: {
-      background: "#1a1916",
-      foreground: "#e8e4db",
-      cursor: "#d4a017",
-      selectionBackground: "#3a3732",
-      black: "#1a1916",
-      red: "#b44532",
-      green: "#3d8c6e",
-      yellow: "#d4a017",
-      blue: "#6e8b9a",
-      magenta: "#8a6e84",
-      cyan: "#6e8f82",
-      white: "#e8e4db"
-    },
+    theme: homebaseTermTheme(),
     scrollback: 4000,
     allowProposedApi: true
   });
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const apply = function () { term.options.theme = homebaseTermTheme(); };
+    if (mq.addEventListener) {
+      mq.addEventListener("change", apply);
+    } else if (mq.addListener) {
+      mq.addListener(apply);
+    }
+  }
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   const unicode11 = new Unicode11Addon.Unicode11Addon();

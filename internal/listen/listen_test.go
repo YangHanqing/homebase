@@ -78,6 +78,16 @@ func TestPrivateTierUsesTrustedRange(t *testing.T) {
 	if !r.NeedsAuth() {
 		t.Fatal("private tier still requires pairing")
 	}
+	loop := "127.0.0.1:" + "7681"
+	found := false
+	for _, a := range r.BindAddrs() {
+		if a == loop {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("private tier must also bind loopback, got %v", r.BindAddrs())
+	}
 }
 
 func TestPrivateTierUsesCustomRange(t *testing.T) {
@@ -90,6 +100,9 @@ func TestPrivateTierUsesCustomRange(t *testing.T) {
 	}
 	if r.TierFallback || !r.Trusted || r.Host != "203.0.113.5" {
 		t.Fatalf("expected custom-range address to be picked up: %+v", r)
+	}
+	if got := r.BindAddrs(); len(got) < 2 || got[1] != "127.0.0.1:7681" {
+		t.Fatalf("private must also bind loopback, got %v", got)
 	}
 }
 

@@ -29,6 +29,7 @@
   let session = null;
   let pollTimer = null;
   let inFlight = false;
+  let lastStatus = { state: "connecting" };
 
   const mobileMq = window.matchMedia("(max-width: 720px), (max-height: 500px)");
 
@@ -87,6 +88,7 @@
   // ---- status -------------------------------------------------------------
 
   function renderStatus(st) {
+    lastStatus = st || lastStatus;
     const cls = "led " + (st.state || "");
     sideLed.className = cls;
     chromeLed.className = cls;
@@ -306,7 +308,19 @@
   });
   document.addEventListener("homebase:lang-changed", function () {
     renderWindows();
+    renderStatus(lastStatus);
   });
+
+  (function hideRemoteSettings() {
+    const h = (location.hostname || "").toLowerCase();
+    if (h === "127.0.0.1" || h === "localhost" || h === "[::1]") {
+      return;
+    }
+    const a = document.querySelector('a[href="/settings.html"]');
+    if (a) {
+      a.hidden = true;
+    }
+  })();
 
   // ---- sizing -------------------------------------------------------------
 

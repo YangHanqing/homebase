@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -102,10 +103,12 @@ func parseWindows(out []byte) []Window {
 	return windows
 }
 
-// NewWindow creates a window and returns its index. It inherits the working
-// directory of the currently active window, if that can be determined.
+// NewWindow creates a window and returns its index. New windows start in the
+// user's home directory, like a normal terminal emulator — not in whatever
+// cwd the homebase process happens to have (often "/" under launchd).
 func (c Client) NewWindow(ctx context.Context) (int, error) {
-	out, err := c.R.Run(ctx, NewWindowArgs(c.currentPath(ctx)))
+	home, _ := os.UserHomeDir()
+	out, err := c.R.Run(ctx, NewWindowArgs(home))
 	if err != nil {
 		return 0, err
 	}
@@ -114,16 +117,6 @@ func (c Client) NewWindow(ctx context.Context) (int, error) {
 		return 0, errors.New("tmux did not print a window index")
 	}
 	return idx, nil
-}
-
-// currentPath is best-effort: a failure (no session yet, tmux hiccup) just
-// means the new window falls back to the invoking process's own cwd.
-func (c Client) currentPath(ctx context.Context) string {
-	out, err := c.R.Run(ctx, CurrentPathArgs())
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // RenameWindow sets a window's name. tmux turns off automatic-rename for that

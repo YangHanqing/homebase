@@ -97,11 +97,11 @@ func DefaultDir() string {
 }
 
 // DefaultFile is the empty document written when the file is missing.
-// A fresh install is loopback-only: usable immediately, exposed to nothing.
+// A fresh install binds loopback plus the trusted range (Tailscale by default).
 func DefaultFile() File {
 	return File{
 		Version:       SchemaVersion,
-		Access:        AccessLocal,
+		Access:        AccessPrivate,
 		ListenAddr:    "",
 		ListenPort:    DefaultPort,
 		TrustedRanges: append([]string{}, DefaultTrustedRanges...),
@@ -183,6 +183,23 @@ func (s *Store) Snapshot() File {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return cloneFile(s.file)
+}
+
+// SetListenPort persists the listen port (used when start walks up from a
+// busy 1990).
+func (s *Store) SetListenPort(port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid listen port %d", port)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := s.file.ListenPort
+	s.file.ListenPort = port
+	if err := s.persistLocked(); err != nil {
+		s.file.ListenPort = prev
+		return err
+	}
+	return nil
 }
 
 // SetAccess switches tiers and persists. The caller is responsible for telling

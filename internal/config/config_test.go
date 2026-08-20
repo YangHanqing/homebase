@@ -29,7 +29,7 @@ func TestMissingFileWritesDefault(t *testing.T) {
 		t.Fatalf("dir mode %o", dst.Mode().Perm())
 	}
 	f := s.Snapshot()
-	if f.Version != SchemaVersion || f.ListenPort != DefaultPort || f.Access != AccessLocal {
+	if f.Version != SchemaVersion || f.ListenPort != DefaultPort || f.Access != AccessPrivate {
 		t.Fatalf("unexpected default: %+v", f)
 	}
 	if len(f.TrustedRanges) != 1 || f.TrustedRanges[0] != "100.64.0.0/10" {
