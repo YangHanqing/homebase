@@ -181,9 +181,49 @@ function homebaseBindCopyOnSelect(term) {
   });
 }
 
+// xterm measures its scroll bar once, at construction, as
+//   viewportElement.offsetWidth - scrollArea.offsetWidth || 15
+// and FitAddon subtracts that from the usable width on every fit. Every
+// touch platform draws overlay scroll bars, so that difference is 0, the
+// `|| 15` fallback wins, and 15px -- about two columns on a phone -- stay
+// dead for the life of the terminal. Re-derive the grid from the cell size
+// the fit just proved, and give those columns back. Where a scroll bar is
+// real (a desktop mouse) it occupies width, clientWidth already excludes it,
+// and this comes out the same as FitAddon's answer.
+function homebaseReclaimGutter(term) {
+  const wrap = term.element && term.element.parentElement;
+  const screen = term.element && term.element.querySelector(".xterm-screen");
+  if (!wrap || !screen || !term.cols || !term.rows) {
+    return;
+  }
+  const cellW = screen.offsetWidth / term.cols;
+  const cellH = screen.offsetHeight / term.rows;
+  if (!(cellW > 0) || !(cellH > 0)) {
+    return;
+  }
+  const cols = Math.max(2, Math.floor(wrap.clientWidth / cellW));
+  const rows = Math.max(1, Math.floor(wrap.clientHeight / cellH));
+  if (cols !== term.cols || rows !== term.rows) {
+    term.resize(cols, rows);
+  }
+}
+
+// Rendered height of one row, for turning a finger's travel into a line
+// count. Derived from what the renderer actually drew, not from the font
+// size, because line-height and device pixel rounding both move it.
+function homebaseCellHeight(term) {
+  const screen = term.element && term.element.querySelector(".xterm-screen");
+  if (!screen || !term.rows) {
+    return 0;
+  }
+  const h = screen.offsetHeight / term.rows;
+  return h > 0 ? h : 0;
+}
+
 function homebaseFitSize(fit, term) {
   try {
     fit.fit();
+    homebaseReclaimGutter(term);
   } catch (e) {
     return { cols: term.cols || 80, rows: term.rows || 24 };
   }

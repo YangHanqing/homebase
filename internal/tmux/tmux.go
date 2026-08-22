@@ -91,6 +91,47 @@ func KillWindowArgs(index int) []string {
 	return []string{"kill-window", "-t", target(index)}
 }
 
+// maxScrollLines bounds one scroll request. tmux clamps at the ends of its
+// own history by itself; this only stops a buggy or hostile client from
+// making us build an absurd repeat count.
+const maxScrollLines = 500
+
+// CopyModeArgs puts the session's active pane into copy mode, which is the
+// only place tmux lets anything move through its scrollback.
+//
+// "-e" makes tmux leave copy mode on its own once the view reaches the
+// bottom again, which is what turns "swipe back down" into "return to the
+// live shell" with nothing to dismiss. Re-entering while already in copy mode
+// keeps the current scroll position, so callers may issue this before every
+// scroll and stay stateless.
+func CopyModeArgs() []string {
+	return []string{"copy-mode", "-e", "-t", SessionName}
+}
+
+// ScrollArgs moves the active pane's view: positive lines go back into
+// history, negative come forward again. "send-keys -X" outside copy mode
+// fails with "not in a mode", so CopyModeArgs has to run first.
+func ScrollArgs(lines int) []string {
+	cmd := "scroll-up"
+	if lines < 0 {
+		cmd, lines = "scroll-down", -lines
+	}
+	if lines > maxScrollLines {
+		lines = maxScrollLines
+	}
+	return []string{"send-keys", "-t", SessionName, "-X", "-N", strconv.Itoa(lines), cmd}
+}
+
+// CancelCopyModeArgs leaves copy mode and jumps back to the live output.
+func CancelCopyModeArgs() []string {
+	return []string{"send-keys", "-t", SessionName, "-X", "cancel"}
+}
+
+// InModeArgs prints 1 when the session's active pane is in copy mode.
+func InModeArgs() []string {
+	return []string{"display-message", "-p", "-t", SessionName, "#{pane_in_mode}"}
+}
+
 // SelectWindowArgs makes one window current for the session.
 func SelectWindowArgs(index int) []string {
 	return []string{"select-window", "-t", target(index)}

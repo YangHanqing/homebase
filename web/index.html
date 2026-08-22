@@ -53,13 +53,13 @@
         <div class="pane" id="pane">
           <div class="term-wrap" id="term-wrap"></div>
           <div class="key-toolbar" id="key-toolbar">
-            <button type="button" class="key-btn" id="key-ctrl" data-i18n-aria="aria.keyCtrl">Ctrl</button>
+            <button type="button" class="key-btn" data-mod="ctrl" data-i18n-aria="aria.keyCtrl">Ctrl</button>
             <button type="button" class="key-btn" data-key="Escape" data-i18n-aria="aria.keyEsc">Esc</button>
             <button type="button" class="key-btn" data-key="Tab" data-i18n-aria="aria.keyTab">Tab</button>
             <button type="button" class="key-btn" data-key="ArrowUp" data-i18n-aria="aria.keyUp">↑</button>
             <button type="button" class="key-btn" data-key="ArrowDown" data-i18n-aria="aria.keyDown">↓</button>
-            <button type="button" class="key-btn" data-key="ArrowLeft" data-i18n-aria="aria.keyLeft">←</button>
-            <button type="button" class="key-btn" data-key="ArrowRight" data-i18n-aria="aria.keyRight">→</button>
+            <button type="button" class="key-btn" data-key="C-c" data-i18n-aria="aria.keyIntr">^C</button>
+            <button type="button" class="key-btn" id="key-more" data-i18n-aria="aria.keyMore">⋯</button>
           </div>
           <div class="pane-status" id="pane-status" hidden>
             <p class="pane-status-line" id="pane-status-line"></p>
@@ -67,6 +67,82 @@
           </div>
         </div>
       </main>
+    </div>
+  </div>
+
+  <div class="modal keys-modal" id="keys-modal" hidden>
+    <div class="sheet keys-sheet" role="dialog" aria-modal="true" aria-labelledby="keys-title">
+      <div class="keys-head">
+        <h2 id="keys-title" data-i18n="keys.title">All keys</h2>
+        <button type="button" class="btn-ghost" id="btn-keys-close" data-i18n="common.close">Close</button>
+      </div>
+      <p class="keys-note keys-tip" data-i18n="keys.dblTap">Double-tap the terminal to send Tab.</p>
+
+      <h3 data-i18n="keys.modTitle">Modifiers</h3>
+      <div class="keys-grid keys-grid-2">
+        <button type="button" class="key-cell" data-mod="ctrl"><b>Ctrl</b></button>
+        <button type="button" class="key-cell" data-mod="alt"><b>Alt</b></button>
+      </div>
+      <p class="keys-note" data-i18n="keys.modHint">Tap one, then type the key it should combine with.</p>
+
+      <h3 data-i18n="keys.ctrlTitle">Control</h3>
+      <div class="keys-grid keys-grid-5">
+        <button type="button" class="key-cell" data-key="C-a"><b>^A</b><small data-i18n="keys.cA">line start</small></button>
+        <button type="button" class="key-cell" data-key="C-e"><b>^E</b><small data-i18n="keys.cE">line end</small></button>
+        <button type="button" class="key-cell" data-key="C-w"><b>^W</b><small data-i18n="keys.cW">kill word</small></button>
+        <button type="button" class="key-cell" data-key="C-u"><b>^U</b><small data-i18n="keys.cU">kill to start</small></button>
+        <button type="button" class="key-cell" data-key="C-k"><b>^K</b><small data-i18n="keys.cK">kill to end</small></button>
+        <button type="button" class="key-cell" data-key="C-c"><b>^C</b><small data-i18n="keys.cC">interrupt</small></button>
+        <button type="button" class="key-cell" data-key="C-d"><b>^D</b><small data-i18n="keys.cD">end of input</small></button>
+        <button type="button" class="key-cell" data-key="C-z"><b>^Z</b><small data-i18n="keys.cZ">suspend</small></button>
+        <button type="button" class="key-cell" data-key="C-l"><b>^L</b><small data-i18n="keys.cL">clear</small></button>
+        <button type="button" class="key-cell" data-key="C-r"><b>^R</b><small data-i18n="keys.cR">history</small></button>
+      </div>
+
+      <h3 data-i18n="keys.navTitle">Navigation</h3>
+      <div class="keys-grid keys-grid-4">
+        <button type="button" class="key-cell" data-key="Tab"><b>Tab</b></button>
+        <button type="button" class="key-cell" data-key="S-Tab"><b>⇧Tab</b></button>
+        <button type="button" class="key-cell" data-key="ArrowLeft"><b>←</b></button>
+        <button type="button" class="key-cell" data-key="ArrowRight"><b>→</b></button>
+        <button type="button" class="key-cell" data-key="Home"><b>Home</b></button>
+        <button type="button" class="key-cell" data-key="End"><b>End</b></button>
+        <button type="button" class="key-cell" data-key="PageUp"><b>PgUp</b></button>
+        <button type="button" class="key-cell" data-key="PageDown"><b>PgDn</b></button>
+      </div>
+
+      <h3 data-i18n="keys.fnTitle">Function</h3>
+      <div class="keys-grid keys-grid-6">
+        <button type="button" class="key-cell" data-key="F1"><b>F1</b></button>
+        <button type="button" class="key-cell" data-key="F2"><b>F2</b></button>
+        <button type="button" class="key-cell" data-key="F3"><b>F3</b></button>
+        <button type="button" class="key-cell" data-key="F4"><b>F4</b></button>
+        <button type="button" class="key-cell" data-key="F5"><b>F5</b></button>
+        <button type="button" class="key-cell" data-key="F6"><b>F6</b></button>
+        <button type="button" class="key-cell" data-key="F7"><b>F7</b></button>
+        <button type="button" class="key-cell" data-key="F8"><b>F8</b></button>
+        <button type="button" class="key-cell" data-key="F9"><b>F9</b></button>
+        <button type="button" class="key-cell" data-key="F10"><b>F10</b></button>
+        <button type="button" class="key-cell" data-key="F11"><b>F11</b></button>
+        <button type="button" class="key-cell" data-key="F12"><b>F12</b></button>
+      </div>
+
+      <h3 data-i18n="keys.symTitle">Symbols</h3>
+      <div class="keys-grid keys-grid-6">
+        <button type="button" class="key-cell" data-text="~">~</button>
+        <button type="button" class="key-cell" data-text="/">/</button>
+        <button type="button" class="key-cell" data-text="\">\</button>
+        <button type="button" class="key-cell" data-text="|">|</button>
+        <button type="button" class="key-cell" data-text="-">-</button>
+        <button type="button" class="key-cell" data-text="_">_</button>
+        <button type="button" class="key-cell" data-text="*">*</button>
+        <button type="button" class="key-cell" data-text="$">$</button>
+        <button type="button" class="key-cell" data-text="^">^</button>
+        <button type="button" class="key-cell" data-text="&amp;">&amp;</button>
+        <button type="button" class="key-cell" data-text="&lt;">&lt;</button>
+        <button type="button" class="key-cell" data-text="&gt;">&gt;</button>
+      </div>
+
     </div>
   </div>
 

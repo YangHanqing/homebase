@@ -43,6 +43,7 @@ func NewMuxServer(s *Server) http.Handler {
 		mux.HandleFunc("POST /api/windows", s.handleTmuxWindows)
 		mux.HandleFunc("PUT /api/windows/{index}", s.handleTmuxWindow)
 		mux.HandleFunc("DELETE /api/windows/{index}", s.handleTmuxWindow)
+		mux.HandleFunc("POST /api/scroll", s.handleScroll)
 
 		mux.HandleFunc("GET /api/settings", s.handleSettings)
 		mux.HandleFunc("PUT /api/settings", s.handleSettings)

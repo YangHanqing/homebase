@@ -178,6 +178,34 @@ func (c Client) KillWindow(ctx context.Context, index int) error {
 	return err
 }
 
+// Scroll moves the active pane's view through tmux's history and reports
+// whether the pane is still in copy mode afterwards.
+//
+// This has to go through tmux because tmux, not the browser, owns the
+// scrollback. Homebase's xterm is attached to a full-screen tmux client,
+// which lives on the alternate screen, so the browser never accumulates any
+// scrollback of its own -- there is literally nothing there for a swipe to
+// move. lines == 0 means "leave copy mode".
+func (c Client) Scroll(ctx context.Context, lines int) (bool, error) {
+	if lines == 0 {
+		// Cancelling when not in copy mode is "not in a mode", which is the
+		// desired end state, not a failure.
+		_, _ = c.R.Run(ctx, CancelCopyModeArgs())
+		return false, nil
+	}
+	if _, err := c.R.Run(ctx, CopyModeArgs()); err != nil {
+		return false, err
+	}
+	if _, err := c.R.Run(ctx, ScrollArgs(lines)); err != nil {
+		return false, err
+	}
+	out, err := c.R.Run(ctx, InModeArgs())
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "1", nil
+}
+
 // SelectWindow makes a window current for the session, which is what the
 // attached PTY redraws.
 func (c Client) SelectWindow(ctx context.Context, index int) error {

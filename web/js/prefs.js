@@ -16,6 +16,7 @@
     fontSize: 13,         // terminal font size in px
     scrollback: 4000,     // terminal scrollback lines
     cursorBlink: true,
+    doubleTapTab: true,   // double-tapping the terminal on a touch screen sends Tab
     newWindowDir: "same"  // "same" as the current window's cwd, or "home"
   };
 
@@ -33,6 +34,7 @@
       fontSize: DEFAULTS.fontSize,
       scrollback: DEFAULTS.scrollback,
       cursorBlink: DEFAULTS.cursorBlink,
+      doubleTapTab: DEFAULTS.doubleTapTab,
       newWindowDir: DEFAULTS.newWindowDir
     };
     if (!raw || typeof raw !== "object") {
@@ -46,6 +48,9 @@
     }
     if (typeof raw.cursorBlink === "boolean") {
       out.cursorBlink = raw.cursorBlink;
+    }
+    if (typeof raw.doubleTapTab === "boolean") {
+      out.doubleTapTab = raw.doubleTapTab;
     }
     const n = Number(raw.fontSize);
     if (isFinite(n) && n >= FONT_MIN && n <= FONT_MAX) {
@@ -99,6 +104,7 @@
       fontSize: state.fontSize,
       scrollback: state.scrollback,
       cursorBlink: state.cursorBlink,
+      doubleTapTab: state.doubleTapTab,
       newWindowDir: state.newWindowDir
     };
   }

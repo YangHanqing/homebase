@@ -57,6 +57,7 @@
   const langRadios = document.querySelectorAll('#lang-radios input[name="lang"]');
   const copyOnSelect = document.getElementById("pref-copy-on-select");
   const cursorBlink = document.getElementById("pref-cursor-blink");
+  const doubleTapTab = document.getElementById("pref-double-tap-tab");
   const fontSize = document.getElementById("pref-font-size");
   const fontSizeOut = document.getElementById("pref-font-size-out");
   const scrollback = document.getElementById("pref-scrollback");
@@ -71,6 +72,7 @@
     const p = prefs.all();
     copyOnSelect.checked = p.copyOnSelect;
     cursorBlink.checked = p.cursorBlink;
+    doubleTapTab.checked = p.doubleTapTab;
     fontSize.value = String(p.fontSize);
     fontSizeOut.textContent = String(p.fontSize);
     scrollback.value = String(p.scrollback);
@@ -90,6 +92,9 @@
     });
     cursorBlink.addEventListener("change", function () {
       prefs.set("cursorBlink", cursorBlink.checked);
+    });
+    doubleTapTab.addEventListener("change", function () {
+      prefs.set("doubleTapTab", doubleTapTab.checked);
     });
     fontSize.addEventListener("input", function () {
       fontSizeOut.textContent = fontSize.value;

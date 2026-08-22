@@ -341,6 +341,10 @@
       renameModal.hidden = true;
       return;
     }
+    if (!keysModal.hidden) {
+      setKeysOpen(false);
+      return;
+    }
     if (appEl.classList.contains("is-nav-open")) {
       setNavOpen(false);
     }
@@ -438,19 +442,24 @@
 
   // ---- terminal input -----------------------------------------------------
 
-  // On-screen keyboards can't produce Ctrl+<key>. "Ctrl" arms a one-shot
-  // modifier: the next character typed (from any keyboard, any input method)
-  // passes through here as plain text regardless of how it was produced, so
-  // turning it into a control byte works even where real keydown metadata
+  // On-screen keyboards can't produce Ctrl+<key> or Alt+<key>. "Ctrl" and
+  // "Alt" arm a one-shot modifier: the next character typed (from any
+  // keyboard, any input method) passes through term.onData as plain text
+  // regardless of how it was produced, so turning it into a control byte or
+  // an ESC-prefixed sequence works even where real keydown metadata
   // (ctrlKey, key code) is unreliable on mobile.
-  const keyCtrlBtn = document.getElementById("key-ctrl");
-  let ctrlArmed = false;
+  const armed = { ctrl: false, alt: false };
 
-  function setCtrlArmed(v) {
-    ctrlArmed = v;
-    if (keyCtrlBtn) {
-      keyCtrlBtn.classList.toggle("is-active", v);
-    }
+  function setArmed(mod, v) {
+    armed[mod] = v;
+    document.querySelectorAll('[data-mod="' + mod + '"]').forEach(function (btn) {
+      btn.classList.toggle("is-active", v);
+    });
+  }
+
+  function disarm() {
+    setArmed("ctrl", false);
+    setArmed("alt", false);
   }
 
   function ctrlByte(ch) {
@@ -468,39 +477,283 @@
     if (!session) {
       return;
     }
-    if (ctrlArmed) {
-      setCtrlArmed(false);
-      const byte = data.length === 1 ? ctrlByte(data) : null;
-      session.sendInput(byte === null ? data : byte);
+    if (!armed.ctrl && !armed.alt) {
+      session.sendInput(data);
       return;
     }
-    session.sendInput(data);
+    let out = data;
+    if (armed.ctrl && data.length === 1) {
+      const byte = ctrlByte(data);
+      if (byte !== null) {
+        out = byte;
+      }
+    }
+    if (armed.alt) {
+      out = "\x1b" + out; // Meta as ESC prefix, what readline and TUIs expect
+    }
+    disarm();
+    session.sendInput(out);
   });
 
-  if (keyCtrlBtn) {
-    keyCtrlBtn.addEventListener("click", function () {
-      setCtrlArmed(!ctrlArmed);
-      term.focus();
-    });
-  }
-
+  // Sequences for keys an on-screen keyboard has no way to send. Home/End
+  // use the normal-mode forms; the rest are the standard xterm codes.
   const KEY_SEQ = {
     Escape: "\x1b",
     Tab: "\t",
+    "S-Tab": "\x1b[Z",
     ArrowUp: "\x1b[A",
     ArrowDown: "\x1b[B",
     ArrowRight: "\x1b[C",
-    ArrowLeft: "\x1b[D"
+    ArrowLeft: "\x1b[D",
+    Home: "\x1b[H",
+    End: "\x1b[F",
+    PageUp: "\x1b[5~",
+    PageDown: "\x1b[6~",
+    F1: "\x1bOP", F2: "\x1bOQ", F3: "\x1bOR", F4: "\x1bOS",
+    F5: "\x1b[15~", F6: "\x1b[17~", F7: "\x1b[18~", F8: "\x1b[19~",
+    F9: "\x1b[20~", F10: "\x1b[21~", F11: "\x1b[23~", F12: "\x1b[24~"
   };
-  document.querySelectorAll(".key-btn[data-key]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      const seq = KEY_SEQ[btn.getAttribute("data-key")];
-      if (seq && session) {
-        session.sendInput(seq);
-      }
-      term.focus();
+
+  // "C-x" spells the control byte directly, for the keys that earn a button
+  // of their own (^C on the toolbar, the whole readline row in the panel)
+  // rather than costing two taps through the sticky Ctrl.
+  function keySeq(name) {
+    if (KEY_SEQ[name]) {
+      return KEY_SEQ[name];
+    }
+    if (name.length === 3 && name.slice(0, 2) === "C-") {
+      return ctrlByte(name[2]);
+    }
+    return null;
+  }
+
+  // A key or symbol button sends exactly what it says. Any armed modifier is
+  // dropped rather than silently applied: "Ctrl" then "F5" has no agreed
+  // meaning, and a stale armed modifier would corrupt the next thing typed.
+  function bindKeyButtons(root) {
+    root.querySelectorAll("[data-key], [data-text]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const text = btn.getAttribute("data-text");
+        const seq = text !== null ? text : keySeq(btn.getAttribute("data-key"));
+        if (seq && session) {
+          disarm();
+          leaveCopyMode().then(function () {
+            if (session) {
+              session.sendInput(seq);
+            }
+          });
+        }
+        term.focus();
+      });
     });
+    root.querySelectorAll("[data-mod]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const mod = btn.getAttribute("data-mod");
+        setArmed(mod, !armed[mod]);
+        term.focus();
+      });
+    });
+  }
+  bindKeyButtons(document);
+
+  // ---- the "all keys" panel -----------------------------------------------
+
+  const keysModal = document.getElementById("keys-modal");
+  const keyMore = document.getElementById("key-more");
+
+  function setKeysOpen(open) {
+    keysModal.hidden = !open;
+    keyMore.classList.toggle("is-active", open);
+    if (!open) {
+      term.focus();
+    }
+  }
+
+  keyMore.addEventListener("click", function () {
+    setKeysOpen(keysModal.hidden);
   });
+  document.getElementById("btn-keys-close").addEventListener("click", function () {
+    setKeysOpen(false);
+  });
+  // Tapping outside the sheet closes it; taps on keys inside must not, so
+  // that a run of ^R presses needs one trip through the panel, not five.
+  keysModal.addEventListener("click", function (ev) {
+    if (ev.target === keysModal) {
+      setKeysOpen(false);
+    }
+  });
+
+  // ---- touch gestures on the terminal -------------------------------------
+
+  // One handler owns every finger on the terminal, and it has to run in the
+  // capture phase on the wrapper, ahead of xterm's own listeners on .xterm.
+  //
+  // The reason is a single upstream behaviour that breaks both scrolling and
+  // selection. xterm's touchmove listener is:
+  //
+  //     viewport.handleTouchMove(e) ? undefined : this.cancel(e)
+  //
+  // where cancel() is preventDefault + stopPropagation. handleTouchMove
+  // returns false when the viewport has nothing to scroll -- and it never has
+  // anything to scroll here, because we are attached to a full-screen tmux
+  // client, which lives on the alternate screen and gives xterm no scrollback
+  // of its own. So on this page xterm cancels *every* touchmove over the
+  // terminal, which kills native scrolling and kills iOS's long-press
+  // selection drag with it. Capturing first and stopping propagation is what
+  // keeps the gesture ours to decide.
+  const TAP_MS = 300;         // double-tap window
+  const TAP_SLOP = 24;        // px a double-tap may wander
+  const DRAG_SLOP = 8;        // px before a move counts as a scroll
+  const LONG_PRESS_MS = 450;  // iOS raises its selection magnifier at ~500ms
+
+  let gesture = null;
+  let lastTap = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
+
+  termWrap.addEventListener("touchstart", function (ev) {
+    if (ev.touches.length !== 1) {
+      gesture = null; // pinch-to-zoom and friends are the browser's business
+      return;
+    }
+    const touch = ev.touches[0];
+    gesture = {
+      x: touch.clientX,
+      y: touch.clientY,
+      lastY: touch.clientY,
+      at: Date.now(),
+      mode: null
+    };
+  }, { capture: true, passive: true });
+
+  termWrap.addEventListener("touchmove", function (ev) {
+    if (!gesture || ev.touches.length !== 1) {
+      return;
+    }
+    const touch = ev.touches[0];
+    if (gesture.mode === null) {
+      // A finger that has been still this long is placing a selection, not
+      // starting a scroll. Anything else that has travelled mostly vertically
+      // is a scroll.
+      const dx = Math.abs(touch.clientX - gesture.x);
+      const dy = Math.abs(touch.clientY - gesture.y);
+      if (Date.now() - gesture.at > LONG_PRESS_MS) {
+        gesture.mode = "select";
+      } else if (dy > DRAG_SLOP && dy > dx) {
+        gesture.mode = "scroll";
+      } else {
+        return;
+      }
+    }
+    if (gesture.mode === "select") {
+      // Hands the gesture to iOS: no preventDefault, so the magnifier and the
+      // Copy callout behave as they do in any other app. Propagation still
+      // has to stop, or xterm cancels the move out from under the selection.
+      ev.stopPropagation();
+      return;
+    }
+    ev.stopPropagation();
+    ev.preventDefault();
+    const cell = homebaseCellHeight(term);
+    if (!cell) {
+      return;
+    }
+    // Dragging down reveals what is above, like every scrolling list.
+    const lines = Math.trunc((touch.clientY - gesture.lastY) / cell);
+    if (lines) {
+      gesture.lastY += lines * cell;
+      queueScroll(lines);
+    }
+  }, { capture: true, passive: false });
+
+  termWrap.addEventListener("touchend", function (ev) {
+    const g = gesture;
+    gesture = null;
+    if (!g || g.mode !== null || ev.changedTouches.length !== 1) {
+      return; // a scroll or a selection, not a tap
+    }
+    // A tap is what you do before typing, so it is also the moment to come
+    // back from wherever the scrollback wandered.
+    leaveCopyMode();
+    if (!window.homebasePrefs.get("doubleTapTab")) {
+      return;
+    }
+    const touch = ev.changedTouches[0];
+    const now = Date.now();
+    if (now - lastTap < TAP_MS &&
+        Math.abs(touch.clientX - lastTapX) < TAP_SLOP &&
+        Math.abs(touch.clientY - lastTapY) < TAP_SLOP) {
+      lastTap = 0;
+      // Safari synthesises mouse events from a tap *after* touchend, and a
+      // synthesised double-click would make xterm select a word -- which
+      // copy-on-select would then put on the clipboard. preventDefault stops
+      // the synthesis, so a tap that meant Tab leaves the clipboard alone.
+      ev.preventDefault();
+      if (session) {
+        disarm();
+        session.sendInput("\t");
+      }
+      return;
+    }
+    lastTap = now;
+    lastTapX = touch.clientX;
+    lastTapY = touch.clientY;
+  }, { capture: true, passive: false });
+
+  // ---- scrollback ---------------------------------------------------------
+
+  // tmux owns the history, so a swipe is a REST call, not a local scroll. At
+  // most one is in flight; whatever the finger covers meanwhile is summed and
+  // sent as the next one, which keeps a fast flick from queueing a burst of
+  // requests that would arrive long after the finger stopped.
+  let pendingLines = 0;
+  let scrollInFlight = false;
+  let inCopyMode = false;
+
+  function queueScroll(lines) {
+    pendingLines += lines;
+    flushScroll();
+  }
+
+  function flushScroll() {
+    if (scrollInFlight || !pendingLines) {
+      return;
+    }
+    const lines = pendingLines;
+    pendingLines = 0;
+    scrollInFlight = true;
+    api("/api/scroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines: lines })
+    }).then(function (res) {
+      inCopyMode = !!(res && res.in_mode);
+    }).catch(function () {
+      // A failed scroll is not worth a banner; the view simply did not move.
+    }).then(function () {
+      scrollInFlight = false;
+      flushScroll();
+    });
+  }
+
+  // Swiping back to the bottom leaves copy mode on its own (tmux "copy-mode
+  // -e"), so this is only for the other way out: the user tapped, and wants
+  // to type at a live prompt rather than send keys into copy mode.
+  // Resolves once tmux is back at the live output, so a caller that is about
+  // to send input can wait: the cancel travels on the control channel and the
+  // input on the WebSocket, and nothing orders those two against each other.
+  function leaveCopyMode() {
+    if (!inCopyMode) {
+      return Promise.resolve();
+    }
+    inCopyMode = false;
+    pendingLines = 0;
+    return api("/api/scroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lines: 0 })
+    }).catch(function () {});
+  }
 
   // ---- boot ---------------------------------------------------------------
 

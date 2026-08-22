@@ -237,3 +237,93 @@ func TestLiveListSurvivesEmptyLocale(t *testing.T) {
 		t.Fatalf("window %+v", windows[0])
 	}
 }
+
+// The whole scroll feature rests on tmux behaviour that is easy to get wrong:
+// send-keys -X fails outside copy mode, re-entering copy mode must not reset
+// the position, and "copy-mode -e" must drop out of copy mode by itself once
+// the view is back at the bottom.
+func TestLiveScrollWalksTheScrollback(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+
+	fillHistory(t, c)
+
+	pos := func() string {
+		out, err := c.R.Run(ctx, []string{"display-message", "-p", "-t", SessionName, "#{scroll_position}"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	inMode, err := c.Scroll(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inMode {
+		t.Fatal("scrolling back should leave the pane in copy mode")
+	}
+	if got := pos(); got != "10" {
+		t.Fatalf("scroll_position = %q, want 10", got)
+	}
+
+	// Re-entering copy mode for the next swipe must not snap back to the
+	// bottom, or a slow drag would fight itself.
+	if _, err := c.Scroll(ctx, 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := pos(); got != "15" {
+		t.Fatalf("scroll_position = %q after a second scroll, want 15", got)
+	}
+
+	// Swiping back down past the bottom is the only exit the UI offers.
+	inMode, err = c.Scroll(ctx, -100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inMode {
+		t.Error("copy-mode -e must exit on its own at the bottom")
+	}
+}
+
+// A tap has to get back to a live prompt even when the user never swiped all
+// the way down, and cancelling when there is nothing to cancel is not an error.
+func TestLiveScrollZeroCancelsFromAnywhere(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+
+	if inMode, err := c.Scroll(ctx, 0); err != nil || inMode {
+		t.Fatalf("cancel outside copy mode: inMode=%v err=%v", inMode, err)
+	}
+	fillHistory(t, c)
+	if _, err := c.Scroll(ctx, 20); err != nil {
+		t.Fatal(err)
+	}
+	if inMode, err := c.Scroll(ctx, 0); err != nil || inMode {
+		t.Fatalf("cancel from copy mode: inMode=%v err=%v", inMode, err)
+	}
+}
+
+// fillHistory prints enough lines to scroll through, then waits for them to
+// land. A fixed sleep is not enough: the pane's shell has to finish starting
+// before it will run anything, and until it does history_size stays 0 and
+// every scroll silently does nothing.
+func fillHistory(t *testing.T, c Client) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := c.R.Run(ctx, []string{"send-keys", "-t", SessionName, "seq 1 300", "Enter"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := c.R.Run(ctx, []string{"display-message", "-p", "-t", SessionName, "#{history_size}"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && n >= 100 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Skip("pane never produced scrollback; shell too slow to start")
+}
