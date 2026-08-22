@@ -100,14 +100,34 @@ long-lived login cookie.
 
 ### macOS: grant Full Disk Access ahead of time
 
-If the host is a Mac, add `~/.local/bin/homebase` to System Settings →
-Privacy & Security → Full Disk Access now. macOS requires a one-time
-interactive click in the GUI to authorize access to folders like Documents,
-Desktop, and Downloads. If you don't set this up in advance, the first time
-Homebase needs to read one of those folders while you're away — operating
-only from your phone or a remote terminal, with no screen-sharing session
-open on this machine — macOS will silently block it, and there is no way to
-click "Allow" remotely.
+If the host is a Mac, add the **Homebase binary** to System Settings →
+Privacy & Security → Full Disk Access now. The installer puts it at
+`~/.local/bin/homebase` (that expands to
+`/Users/<your-username>/.local/bin/homebase`). `install.sh` prints the
+absolute path when it finishes; if you set `HOMEBASE_INSTALL_DIR`, use
+that path instead.
+
+macOS will not prompt Homebase for this permission, and there is no way
+for the program to request it. Access to folders like Documents, Desktop,
+and Downloads is a one-time click in System Settings. If you skip it, the
+first time Homebase needs one of those folders while you're away —
+operating only from your phone or a remote terminal, with no screen
+sharing on this machine — macOS silently blocks it, and there is no remote
+"Allow" button.
+
+`~/.local` is a hidden folder, so Finder will not show it in a normal
+browse. After opening Full Disk Access:
+
+1. Click **+**.
+2. In Finder, **Go → Go to Folder…** (⇧⌘G).
+3. Paste `~/.local/bin` and press Return.
+4. Select the file named `homebase` (the binary, not the folder) and
+   confirm.
+
+You can also drag that file from the Finder window onto the Full Disk
+Access list. Granting the folder, or a different copy of the binary, does
+not count. After an upgrade the same path is reused, so you usually do
+not have to click again.
 
 ## Commands
 
