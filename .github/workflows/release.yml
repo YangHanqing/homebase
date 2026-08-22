@@ -38,10 +38,10 @@ jobs:
             "${{ secrets.APPLE_API_ISSUER_ID }}" \
             "${{ secrets.APPLE_API_KEY_ID }}" \
             "$RUNNER_TEMP/AuthKey.p8"
-          echo "RCODESIGN_P12_PATH=$RUNNER_TEMP/cert.p12" >> "$GITHUB_ENV"
-          echo "RCODESIGN_P12_PASSWORD_FILE=$RUNNER_TEMP/cert.password" >> "$GITHUB_ENV"
-          echo "RCODESIGN_API_KEY_JSON=$RUNNER_TEMP/api-key.json" >> "$GITHUB_ENV"
-          echo "RCODESIGN_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+          echo "HOMEBASE_SIGN_P12_PATH=$RUNNER_TEMP/cert.p12" >> "$GITHUB_ENV"
+          echo "HOMEBASE_SIGN_P12_PASSWORD_FILE=$RUNNER_TEMP/cert.password" >> "$GITHUB_ENV"
+          echo "HOMEBASE_SIGN_API_KEY_JSON=$RUNNER_TEMP/api-key.json" >> "$GITHUB_ENV"
+          echo "HOMEBASE_SIGN_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
 
       - uses: goreleaser/goreleaser-action@v6
         with:

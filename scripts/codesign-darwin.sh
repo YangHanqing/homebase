@@ -12,7 +12,7 @@ if ! file "$bin" | grep -q "Mach-O"; then
 fi
 
 missing=()
-for var in RCODESIGN_P12_PATH RCODESIGN_P12_PASSWORD_FILE RCODESIGN_TEAM_ID RCODESIGN_API_KEY_JSON; do
+for var in HOMEBASE_SIGN_P12_PATH HOMEBASE_SIGN_P12_PASSWORD_FILE HOMEBASE_SIGN_TEAM_ID HOMEBASE_SIGN_API_KEY_JSON; do
   [ -n "${!var:-}" ] || missing+=("$var")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
@@ -20,20 +20,19 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 0
 fi
 
-# --config-file /dev/null: rcodesign auto-loads a "default" profile from
-# $XDG_CONFIG_HOME/rcodesign or ./rcodesign.toml if present; on the GH
-# Actions runner that hits a schema this rcodesign version rejects, so
-# skip config-file discovery entirely (we pass everything via flags).
+# rcodesign auto-merges any RCODESIGN_* environment variable into its config,
+# validated against the same profile schema as config files (only "sign" and
+# "remote-sign" tables) — hence our own env vars use a HOMEBASE_SIGN_ prefix
+# to avoid colliding with that mechanism (RCODESIGN_TEAM_ID / _API_KEY_JSON
+# etc. were being rejected as UnknownField("team"/"api", ...)).
 rcodesign sign \
-  --config-file /dev/null \
-  --p12-file "$RCODESIGN_P12_PATH" \
-  --p12-password-file "$RCODESIGN_P12_PASSWORD_FILE" \
-  --team-name "$RCODESIGN_TEAM_ID" \
+  --p12-file "$HOMEBASE_SIGN_P12_PATH" \
+  --p12-password-file "$HOMEBASE_SIGN_P12_PASSWORD_FILE" \
+  --team-name "$HOMEBASE_SIGN_TEAM_ID" \
   --for-notarization \
   "$bin"
 
 rcodesign notary-submit \
-  --config-file /dev/null \
-  --api-key-file "$RCODESIGN_API_KEY_JSON" \
+  --api-key-file "$HOMEBASE_SIGN_API_KEY_JSON" \
   --staple \
   "$bin"
