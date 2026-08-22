@@ -20,7 +20,12 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 0
 fi
 
+# --config-file /dev/null: rcodesign auto-loads a "default" profile from
+# $XDG_CONFIG_HOME/rcodesign or ./rcodesign.toml if present; on the GH
+# Actions runner that hits a schema this rcodesign version rejects, so
+# skip config-file discovery entirely (we pass everything via flags).
 rcodesign sign \
+  --config-file /dev/null \
   --p12-file "$RCODESIGN_P12_PATH" \
   --p12-password-file "$RCODESIGN_P12_PASSWORD_FILE" \
   --team-name "$RCODESIGN_TEAM_ID" \
@@ -28,6 +33,7 @@ rcodesign sign \
   "$bin"
 
 rcodesign notary-submit \
+  --config-file /dev/null \
   --api-key-file "$RCODESIGN_API_KEY_JSON" \
   --staple \
   "$bin"
