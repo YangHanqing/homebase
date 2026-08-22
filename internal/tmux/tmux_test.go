@@ -67,9 +67,6 @@ func TestParseWindows(t *testing.T) {
 }
 
 func TestClassifyOutput(t *testing.T) {
-	if err := classifyOutput([]byte(ENOTMUXMarker+"\n"), nil, errors.New("exit 127")); !errors.Is(err, ErrNoTmux) {
-		t.Fatalf("want ErrNoTmux, got %v", err)
-	}
 	if err := classifyOutput(nil, []byte("can't find session: homebase\n"), errors.New("exit 1")); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("want ErrNoSession, got %v", err)
 	}

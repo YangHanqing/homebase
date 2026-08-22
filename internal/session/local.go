@@ -26,7 +26,7 @@ func (d LocalDialer) Start(ctx context.Context, sz Size) (Proc, error) {
 	if bin == "" {
 		found, err := tmux.LocalBinary()
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", CodeENOTMUX, err)
+			return nil, err
 		}
 		bin = found
 	}
@@ -40,7 +40,7 @@ func (d LocalDialer) Start(ctx context.Context, sz Size) (Proc, error) {
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: sz.Rows, Cols: sz.Cols})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", CodePTYSpawn, err)
+		return nil, fmt.Errorf("could not start tmux: %w", err)
 	}
 	p := newProc(cmd, ptmx, stderr)
 	go func() {

@@ -71,7 +71,7 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 
 	proc, err := h.Dialer.Start(ctx, session.Size{Cols: 80, Rows: 24})
 	if err != nil {
-		code, msg := session.Classify(nil, false, err)
+		code, msg := session.Classify(nil, err)
 		h.log().Info("pty spawn failed", "code", code, "err", err)
 		_ = c.status("error", code, msg)
 		return
@@ -80,30 +80,15 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 
 	_ = c.status("connected", "", "")
 
-	var sawENOTMUX bool
 	var ptyReadErr error
 	var sawMu sync.Mutex
 
 	go func() {
 		buf := make([]byte, ptyBufSize)
-		peek := make([]byte, 0, 64)
 		for {
 			n, err := proc.Read(buf)
 			if n > 0 {
-				chunk := buf[:n]
-				sawMu.Lock()
-				if !sawENOTMUX && len(peek) < 64 {
-					need := 64 - len(peek)
-					if len(chunk) < need {
-						need = len(chunk)
-					}
-					peek = append(peek, chunk[:need]...)
-					if session.SawENOTMUX(peek) {
-						sawENOTMUX = true
-					}
-				}
-				sawMu.Unlock()
-				if werr := c.binary(chunk); werr != nil {
+				if werr := c.binary(buf[:n]); werr != nil {
 					cancel()
 					return
 				}
@@ -150,14 +135,13 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 	exit := session.DescribeExit(proc.Wait())
 
 	sawMu.Lock()
-	enot := sawENOTMUX
 	readErr := ptyReadErr
 	sawMu.Unlock()
 	var stderr []byte
 	if s, ok := proc.(session.Stderrer); ok {
 		stderr = s.Stderr()
 	}
-	code, msg := session.Classify(stderr, enot, nil)
+	code, msg := session.Classify(stderr, nil)
 	if code != "" {
 		h.log().Info("pty exit", append([]any{"code", code,
 			"stderr", session.StderrSnippet(stderr)}, exit.LogArgs()...)...)

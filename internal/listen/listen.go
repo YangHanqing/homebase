@@ -311,9 +311,6 @@ func scanPrivateIPv4s() []string {
 	return out
 }
 
-// LocalIPv4s is the historical name for PrivateIPv4s.
-func LocalIPv4s() []string { return PrivateIPv4s() }
-
 func unicastIPv4(ip net.IP) bool {
 	ip4 := ip.To4()
 	if ip4 == nil {

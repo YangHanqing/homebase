@@ -16,9 +16,6 @@ import (
 // SessionName is the only tmux session Homebase ever touches.
 const SessionName = "homebase"
 
-// ENOTMUXMarker is printed by the remote script when tmux is not installed.
-const ENOTMUXMarker = "HOMEBASE_ENOTMUX"
-
 // Errors surfaced by a Runner.
 var (
 	// ErrNoTmux means the tmux binary was not found on the target.
@@ -178,11 +175,7 @@ func setEnv(env []string, key, val string) []string {
 // classifyOutput turns tmux/ssh chatter into the sentinel errors callers
 // switch on. It never returns raw PTY bytes; stderr is trimmed to one line.
 func classifyOutput(stdout, stderr []byte, exitErr error) error {
-	all := string(stdout) + string(stderr)
-	if strings.Contains(all, ENOTMUXMarker) {
-		return ErrNoTmux
-	}
-	lower := strings.ToLower(all)
+	lower := strings.ToLower(string(stdout) + string(stderr))
 	// tmux says "can't find session: homebase", or "no server running on …"
 	// when nothing has ever attached on this machine.
 	if strings.Contains(lower, "can't find session") ||
