@@ -132,21 +132,38 @@ and remembers whichever port it actually used.
 
 ## Security model
 
-Homebase has exactly one security-relevant setting: Access (private / LAN).
-That setting directly decides the address the service binds to, and both
-the authentication requirement (whether pairing is needed) and TLS are
-**derived** from that bind address — they cannot be configured
-independently. In other words, there is no combination that means "bind a
-public address, but skip credentials, and stay unencrypted." Homebase
-refuses by design to bind any publicly routable address or `0.0.0.0`, and
-the `-listen` flag cannot override that. So even a misconfiguration can't
-accidentally expose an unprotected port to the public internet.
+Homebase hands a browser a shell. Read this section before pointing it at a
+network.
+
+**Homebase speaks plain HTTP. It has no TLS, and no setting turns TLS on.**
+Transport encryption is Tailscale's job (or WireGuard's, or any overlay you
+already trust) — which is why the default access tier binds only loopback and
+your Tailscale range. On an ordinary LAN, anyone else on that network can read
+everything you type and everything the terminal prints, and can lift the
+session cookie or a pairing link straight off the wire. That is what the red
+confirmation on Settings → Access → "All local networks" is warning you about.
+
+Access (private / LAN) is the one security-relevant setting. It decides the
+address the service binds to, and the authentication requirement (whether
+pairing is needed) is **derived** from that address rather than configured
+separately — there is no combination that means "bind a routable address, but
+skip credentials". Homebase refuses by design to bind any publicly routable
+address or `0.0.0.0`, and the `-listen` flag cannot override that, so even a
+misconfiguration cannot put an unprotected port on the public internet.
 
 The loopback address (`127.0.0.1`) is reachable without pairing; any other
-device must pair first (see "Install and start" above). Pairing does not
-grant any capability beyond what's already there — running `homebase pair`
-requires already being able to run a command on the machine, which is
-exactly the capability Homebase hands out.
+device must pair first (see "Install and start" above). Pairing does not grant
+any capability beyond what's already there — running `homebase pair` requires
+already being able to run a command on the machine, which is exactly the
+capability Homebase hands out.
+
+**This assumes the host is a machine you do not share.** Because loopback needs
+no credential, any other local account on the host can reach
+`http://127.0.0.1:1990` and get a shell as the user running Homebase. On a
+single-user Mac or a personal Linux box that is the same shell those accounts
+could have had anyway; on a shared multi-user host it is a privilege
+escalation. Do not run Homebase on a machine whose other local accounts you
+would not hand a terminal to.
 
 Device session credentials are stored only as hashes in the local
 `devices.json`. The plaintext one-time token and session key each appear
