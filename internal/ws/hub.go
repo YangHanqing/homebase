@@ -147,7 +147,7 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 
 	cancel()
 	_ = proc.Kill()
-	waitErr := proc.Wait()
+	exit := session.DescribeExit(proc.Wait())
 
 	sawMu.Lock()
 	enot := sawENOTMUX
@@ -159,15 +159,19 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 	}
 	code, msg := session.Classify(stderr, enot, nil)
 	if code != "" {
-		h.log().Info("pty exit", "code", code, "wait_err", waitErr != nil)
+		h.log().Info("pty exit", append([]any{"code", code,
+			"stderr", session.StderrSnippet(stderr)}, exit.LogArgs()...)...)
 		_ = c.status("error", code, msg)
 		return
 	}
 	if readErr != nil {
 		// The PTY died on its own (not a browser-initiated close) and left
 		// no stderr to classify — this is the "tmux just exited" case that
-		// otherwise leaves no trace anywhere.
-		h.log().Info("pty exit unclassified", "pty_read_err", readErr, "wait_err", waitErr)
+		// otherwise leaves no trace anywhere. The exit status is the whole
+		// point of the line: it separates tmux quitting of its own accord
+		// from something outside signalling it.
+		h.log().Info("pty exit unclassified",
+			append([]any{"pty_read_err", readErr}, exit.LogArgs()...)...)
 	}
 	_ = c.status("disconnected", session.CodeWSClosed, "")
 }
