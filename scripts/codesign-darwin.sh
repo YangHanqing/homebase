@@ -32,7 +32,15 @@ rcodesign sign \
   --for-notarization \
   "$bin"
 
+# Apple's notary service only accepts a container (.zip/.dmg/.pkg/.app), not
+# a bare Mach-O, and a bare binary can't be stapled either — so zip it up,
+# submit the zip (--wait, no --staple), and ship the signed-but-unstapled
+# binary. Gatekeeper checks Apple's notarization ticket database online on
+# first run, which is sufficient once the notarization above has completed.
+zip_path="$(mktemp -u).zip"
+zip -j "$zip_path" "$bin" >/dev/null
 rcodesign notary-submit \
   --api-key-file "$HOMEBASE_SIGN_API_KEY_JSON" \
-  --staple \
-  "$bin"
+  --wait \
+  "$zip_path"
+rm -f "$zip_path"
