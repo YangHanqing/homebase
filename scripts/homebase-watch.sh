@@ -65,19 +65,13 @@ while true; do
 done
 
 # ---------------------------------------------------------------------------
-# 常驻方式（把下面这段存成
-#   ~/Library/LaunchAgents/com.yanghanqing.homebase-watch.plist
-# 再 launchctl bootstrap gui/$(id -u) 该文件；卸载用 launchctl bootout）
+# 常驻方式：单元文件就在旁边，不要再从这段注释里手抄一份。
 #
-# <?xml version="1.0" encoding="UTF-8"?>
-# <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-#   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-# <plist version="1.0"><dict>
-#   <key>Label</key><string>com.yanghanqing.homebase-watch</string>
-#   <key>ProgramArguments</key>
-#   <array><string>/Users/yanghanqing/Developer/homebase/scripts/homebase-watch.sh</string></array>
-#   <key>KeepAlive</key><true/>
-#   <key>RunAtLoad</key><true/>
-#   <key>ThrottleInterval</key><integer>30</integer>
-# </dict></plist>
+#   cp scripts/com.yanghanqing.homebase-watch.plist ~/Library/LaunchAgents/
+#   launchctl bootstrap gui/$(id -u) \
+#     ~/Library/LaunchAgents/com.yanghanqing.homebase-watch.plist
+#
+# 卸载：
+#
+#   launchctl bootout gui/$(id -u)/com.yanghanqing.homebase-watch
 # ---------------------------------------------------------------------------
