@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,18 @@ func privateSocketDir(t *testing.T) string {
 	return dir
 }
 
+// killPrivateServer tears down the throwaway server at the end of a test.
+// It names the socket explicitly rather than trusting TMUX_TMPDIR: tmux
+// silently falls back to the default socket when TMUX_TMPDIR points at a
+// directory that is not there, and a kill-server that lands on the default
+// socket destroys the operator's own homebase session. With -S a stale path
+// is simply an error.
+func killPrivateServer(t *testing.T, bin, dir string) {
+	t.Helper()
+	socket := filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), "default")
+	t.Cleanup(func() { _ = exec.Command(bin, "-S", socket, "kill-server").Run() })
+}
+
 // liveClient runs against a real tmux, but on a private server socket
 // (TMUX_TMPDIR) so it can never touch the operator's own homebase session.
 func liveClient(t *testing.T) Client {
@@ -31,16 +44,14 @@ func liveClient(t *testing.T) Client {
 	if err != nil {
 		t.Skip("tmux not installed")
 	}
-	t.Setenv("TMUX_TMPDIR", privateSocketDir(t))
+	dir := privateSocketDir(t)
+	t.Setenv("TMUX_TMPDIR", dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName).CombinedOutput(); err != nil {
 		t.Skipf("cannot start a private tmux server: %v (%s)", err, out)
 	}
-	t.Cleanup(func() {
-		// Our own throwaway server, not the operator's.
-		_ = exec.Command(bin, "kill-server").Run()
-	})
+	killPrivateServer(t, bin, dir)
 	return Client{R: LocalRunner{Bin: bin}}
 }
 
@@ -114,13 +125,14 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 		want = home
 	}
 
-	t.Setenv("TMUX_TMPDIR", privateSocketDir(t))
+	dir := privateSocketDir(t)
+	t.Setenv("TMUX_TMPDIR", dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName, "-c", "/tmp").CombinedOutput(); err != nil {
 		t.Skipf("cannot start a private tmux server: %v (%s)", err, out)
 	}
-	t.Cleanup(func() { _ = exec.Command(bin, "kill-server").Run() })
+	killPrivateServer(t, bin, dir)
 
 	c := Client{R: LocalRunner{Bin: bin}}
 	idx, err := c.NewWindow(ctx, "home")
@@ -159,8 +171,9 @@ func TestLiveAttachTurnsStatusBarOff(t *testing.T) {
 	if err != nil {
 		t.Skip("tmux not installed")
 	}
-	t.Setenv("TMUX_TMPDIR", privateSocketDir(t))
-	t.Cleanup(func() { _ = exec.Command(bin, "kill-server").Run() })
+	dir := privateSocketDir(t)
+	t.Setenv("TMUX_TMPDIR", dir)
+	killPrivateServer(t, bin, dir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -195,12 +208,13 @@ func TestLiveListSurvivesEmptyLocale(t *testing.T) {
 	if err != nil {
 		t.Skip("tmux not installed")
 	}
-	t.Setenv("TMUX_TMPDIR", privateSocketDir(t))
+	dir := privateSocketDir(t)
+	t.Setenv("TMUX_TMPDIR", dir)
 	for _, k := range []string{"LANG", "LC_ALL", "LC_CTYPE"} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
 	}
-	t.Cleanup(func() { _ = exec.Command(bin, "kill-server").Run() })
+	killPrivateServer(t, bin, dir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
