@@ -81,6 +81,7 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 	_ = c.status("connected", "", "")
 
 	var sawENOTMUX bool
+	var ptyReadErr error
 	var sawMu sync.Mutex
 
 	go func() {
@@ -108,6 +109,12 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 				}
 			}
 			if err != nil {
+				// The PTY itself closed (tmux/its child exited) rather than
+				// the browser going away. Record that distinction — it's
+				// the one case Classify below has no stderr to work with.
+				sawMu.Lock()
+				ptyReadErr = err
+				sawMu.Unlock()
 				cancel()
 				return
 			}
@@ -144,6 +151,7 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 
 	sawMu.Lock()
 	enot := sawENOTMUX
+	readErr := ptyReadErr
 	sawMu.Unlock()
 	var stderr []byte
 	if s, ok := proc.(session.Stderrer); ok {
@@ -154,6 +162,12 @@ func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
 		h.log().Info("pty exit", "code", code, "wait_err", waitErr != nil)
 		_ = c.status("error", code, msg)
 		return
+	}
+	if readErr != nil {
+		// The PTY died on its own (not a browser-initiated close) and left
+		// no stderr to classify — this is the "tmux just exited" case that
+		// otherwise leaves no trace anywhere.
+		h.log().Info("pty exit unclassified", "pty_read_err", readErr, "wait_err", waitErr)
 	}
 	_ = c.status("disconnected", session.CodeWSClosed, "")
 }

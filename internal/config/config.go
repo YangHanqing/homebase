@@ -19,7 +19,7 @@ const (
 	dirMode       = 0o700
 	// MaxTrustedRanges caps the trusted_ranges list so a user cannot paste in
 	// an unbounded file and turn every request into a CIDR scan.
-	MaxTrustedRanges = 8
+	MaxTrustedRanges = 5
 )
 
 // ErrCorrupt is returned when the file exists but is not usable.
@@ -37,22 +37,22 @@ var (
 type Access string
 
 const (
-	// AccessLocal binds 127.0.0.1. Nothing leaves the machine.
+	// AccessLocal is accepted only when loading an old file, and is rewritten
+	// to AccessPrivate. It is not a valid write value.
 	AccessLocal Access = "local"
-	// AccessPrivate binds the first local address that falls inside
-	// TrustedRanges (Tailscale/WireGuard/etc — see TrustedRanges). Falls back
-	// to loopback if no such address is found.
+	// AccessPrivate binds 127.0.0.1 plus the first local address that falls
+	// inside TrustedRanges (Tailscale/WireGuard/etc). Falls back to loopback
+	// if no such address is found.
 	AccessPrivate Access = "private"
-	// AccessLAN binds 0.0.0.0. Traffic is plaintext HTTP; anyone who can reach
-	// the machine on the network can reach the shell. Requires the user to
-	// have explicitly acknowledged the risk (see Settings/README).
+	// AccessLAN binds 127.0.0.1 plus every non-public IPv4 on this machine.
+	// Public and unspecified addresses are never bound.
 	AccessLAN Access = "lan"
 )
 
-// ValidAccess reports whether a is a known tier.
+// ValidAccess reports whether a is a tier that may be written.
 func ValidAccess(a Access) bool {
 	switch a {
-	case AccessLocal, AccessPrivate, AccessLAN:
+	case AccessPrivate, AccessLAN:
 		return true
 	}
 	return false
@@ -154,8 +154,11 @@ func Load(path string) (*Store, error) {
 			f.Access = AccessPrivate
 		}
 	}
+	if f.Access == AccessLocal {
+		f.Access = AccessPrivate
+	}
 	if !ValidAccess(f.Access) {
-		return nil, fmt.Errorf("%w: %q (want local, private, or lan)", ErrAccess, f.Access)
+		return nil, fmt.Errorf("%w: %q (want private or lan)", ErrAccess, f.Access)
 	}
 	f.Version = SchemaVersion
 	if f.ListenPort == 0 {
@@ -262,12 +265,84 @@ func ValidateTrustedRanges(ranges []string) ([]string, error) {
 				r += "/128"
 			}
 		}
-		if _, _, err := net.ParseCIDR(r); err != nil {
+		_, n, err := net.ParseCIDR(r)
+		if err != nil {
 			return nil, fmt.Errorf("%w: %q: %v", ErrTrustedRange, r, err)
+		}
+		if !CIDRIsNonPublic(n) {
+			return nil, fmt.Errorf("%w: %q is not a private network", ErrTrustedRange, r)
 		}
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// NonPublicIPv4CIDRs is every IPv4 space Homebase will bind. Public unicast
+// and all IPv6 are refused — this build is plain HTTP and is not a public
+// service.
+var NonPublicIPv4CIDRs = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"100.64.0.0/10",
+	"127.0.0.0/8",
+	"169.254.0.0/16",
+}
+
+var nonPublicIPv4Nets = mustParseCIDRs(NonPublicIPv4CIDRs)
+
+func mustParseCIDRs(cidrs []string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, s := range cidrs {
+		_, n, err := net.ParseCIDR(s)
+		if err != nil {
+			panic("config: bad NonPublicIPv4CIDR " + s)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// IPIsNonPublic reports whether ip is loopback, RFC1918, CGNAT (100.64/10),
+// or IPv4 link-local. IPv6 is never non-public for our purposes.
+func IPIsNonPublic(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	for _, n := range nonPublicIPv4Nets {
+		if n.Contains(v4) {
+			return true
+		}
+	}
+	return false
+}
+
+// CIDRIsNonPublic reports whether n is an IPv4 network wholly inside one
+// entry of NonPublicIPv4CIDRs. A wider net that spills into public space
+// (10.0.0.0/7, 0.0.0.0/0) is rejected.
+func CIDRIsNonPublic(n *net.IPNet) bool {
+	if n == nil {
+		return false
+	}
+	v4 := n.IP.To4()
+	if v4 == nil {
+		return false
+	}
+	ones, bits := n.Mask.Size()
+	if bits != 32 {
+		return false
+	}
+	for _, outer := range nonPublicIPv4Nets {
+		oOnes, _ := outer.Mask.Size()
+		if ones < oOnes {
+			continue
+		}
+		if outer.Contains(v4) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneFile(f File) File {

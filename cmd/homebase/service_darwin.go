@@ -51,6 +51,16 @@ func applyService(exe, configPath string) error {
 	return nil
 }
 
+func kickRestart() error {
+	// Start, do not wait: this process is the unit being replaced.
+	cmd := exec.Command("launchctl", "kickstart", "-k", guiDomain()+"/"+launchdLabel)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("launchctl kickstart: %w", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 func stopService() error {
 	out, err := launchctl("bootout", guiDomain()+"/"+launchdLabel)
 	if err == nil {

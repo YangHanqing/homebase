@@ -40,6 +40,16 @@ func applyService(exe, configPath string) error {
 	return nil
 }
 
+func kickRestart() error {
+	// --no-block: this process is the unit being replaced.
+	cmd := exec.Command("systemctl", "--user", "restart", "--no-block", systemdUnit)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("systemctl restart: %w", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 func stopService() error {
 	out, err := systemctl("stop", systemdUnit)
 	if err == nil {

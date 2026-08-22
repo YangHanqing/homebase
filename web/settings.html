@@ -8,85 +8,189 @@
   <meta name="color-scheme" content="light dark">
   <title>Homebase — Settings</title>
   <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/prefs.js"></script>
   <link rel="stylesheet" href="/css/settings.css">
 </head>
 <body class="settings-body">
   <main class="settings-page">
     <header class="settings-header">
       <a class="btn-ghost" href="/" data-i18n="s.back">&larr; Back</a>
-      <button type="button" class="btn-tiny" id="btn-lang">EN</button>
     </header>
     <h1 data-i18n="s.title">Settings</h1>
 
+    <nav class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab is-active" role="tab" id="tab-appearance"
+              data-tab="appearance" aria-controls="panel-appearance" aria-selected="true"
+              data-i18n="s.tabAppearance">Preferences</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-security"
+              data-tab="security" aria-controls="panel-security" aria-selected="false"
+              data-i18n="s.tabSecurity">Security</button>
+    </nav>
+
+    <!-- Preferences: per-device, kept in this browser's storage.
+         No server round-trip, so it works from any paired device. -->
+    <section class="settings-panel" id="panel-appearance" role="tabpanel" aria-labelledby="tab-appearance">
+      <p class="settings-scope-note" data-i18n="s.prefsScope">Stored in this browser only. Each device keeps its own settings, and these never change how Homebase listens on the network.</p>
+
+      <section class="settings-card">
+        <h2 data-i18n="s.langTitle">Language</h2>
+        <div class="settings-radios" id="lang-radios">
+          <label class="settings-radio">
+            <input type="radio" name="lang" value="auto">
+            <span>
+              <strong data-i18n="s.langAuto">Auto</strong>
+              <small data-i18n="s.langAutoBody">Match this browser's language.</small>
+            </span>
+          </label>
+          <label class="settings-radio">
+            <input type="radio" name="lang" value="zh">
+            <span>
+              <strong>中文</strong>
+            </span>
+          </label>
+          <label class="settings-radio">
+            <input type="radio" name="lang" value="en">
+            <span>
+              <strong>English</strong>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2 data-i18n="s.behaviourTitle">Behaviour</h2>
+        <label class="settings-toggle">
+          <input type="checkbox" id="pref-copy-on-select">
+          <span>
+            <strong data-i18n="s.copySelect">Copy selected text automatically</strong>
+            <small data-i18n="s.copySelectBody">Selecting text in the terminal puts it on this device's clipboard. The selection never goes to the terminal or the host.</small>
+          </span>
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="pref-cursor-blink">
+          <span>
+            <strong data-i18n="s.cursorBlink">Blinking cursor</strong>
+            <small data-i18n="s.cursorBlinkBody">Turn off to save a little battery on a screen left open.</small>
+          </span>
+        </label>
+      </section>
+
+      <section class="settings-card">
+        <h2 data-i18n="s.terminalTitle">Terminal</h2>
+        <div class="settings-field">
+          <label data-i18n="s.newWindowDir">New window directory</label>
+          <div class="settings-radios" id="newwindir-radios">
+            <label class="settings-radio">
+              <input type="radio" name="newwindir" value="same">
+              <span>
+                <strong data-i18n="s.newWindowDirSame">Same as current window</strong>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="newwindir" value="home">
+              <span>
+                <strong data-i18n="s.newWindowDirHome">Home (~)</strong>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="settings-field">
+          <label for="pref-font-size" data-i18n="s.fontSize">Font size</label>
+          <div class="settings-range">
+            <input type="range" id="pref-font-size" min="10" max="22" step="1">
+            <output id="pref-font-size-out"></output>
+          </div>
+          <p class="form-hint" data-i18n="s.fontSizeBody">Changing this re-measures the grid and tells tmux the new size.</p>
+        </div>
+        <div class="settings-field">
+          <label for="pref-scrollback" data-i18n="s.scrollback">Scrollback</label>
+          <select id="pref-scrollback">
+            <option value="1000">1000</option>
+            <option value="4000">4000</option>
+            <option value="10000">10000</option>
+            <option value="50000">50000</option>
+          </select>
+          <p class="form-hint" data-i18n="s.scrollbackBody">Lines kept in the browser. tmux keeps its own history separately.</p>
+        </div>
+      </section>
+    </section>
+
+    <!-- Security: server config. The API refuses anything but 127.0.0.1. -->
+    <section class="settings-panel" id="panel-security" role="tabpanel" aria-labelledby="tab-security" hidden>
     <div class="settings-notice" id="loopback-notice" hidden>
       <p data-i18n="s.loopbackOnly">Settings can only be viewed and changed from a browser running on this machine (127.0.0.1). Open this page locally to make changes.</p>
     </div>
 
-    <section class="settings-card">
-      <h2 data-i18n="s.httpTitle">This runs over plain HTTP, not HTTPS</h2>
-      <p data-i18n="s.httpBody">Nothing encrypts the traffic between your browser and Homebase. Whether that's fine depends entirely on the network you expose it to:</p>
-      <ul class="settings-list">
-        <li><strong data-i18n="s.httpLocalLabel">On 127.0.0.1 (this machine only):</strong> <span data-i18n="s.httpLocalBody">safe — traffic never leaves the machine.</span></li>
-        <li><strong data-i18n="s.httpTrustedLabel">On a trusted range below:</strong> <span data-i18n="s.httpTrustedBody">safe only if that range really is an already-encrypted overlay network (Tailscale, WireGuard, Headscale, ZeroTier, ...). Homebase cannot verify this — it's your own assertion.</span></li>
-        <li><strong data-i18n="s.httpLanLabel">On any other network (LAN, public/hotel/office Wi-Fi):</strong> <span data-i18n="s.httpLanBody">do not enable this. Anyone else on that network could potentially intercept your session and gain full control of this machine — the same level of access as sitting at its keyboard.</span></li>
-      </ul>
-    </section>
-
-    <section class="settings-card">
-      <h2 data-i18n="s.accessTitle">Access</h2>
-      <p class="form-hint" data-i18n="s.accessHint">After saving, run <code>homebase restart</code> on this machine.</p>
-      <div class="settings-radios" id="access-radios">
-        <label class="settings-radio">
-          <input type="radio" name="access" value="local">
-          <span>
-            <strong data-i18n="s.accessLocal">Local only</strong>
-            <small data-i18n="s.accessLocalBody">127.0.0.1 only. Nothing leaves this machine. Default and safest.</small>
-          </span>
-        </label>
-        <label class="settings-radio">
-          <input type="radio" name="access" value="private">
-          <span>
-            <strong data-i18n="s.accessPrivate">Trusted range</strong>
-            <small data-i18n="s.accessPrivateBody">Default. This machine on 127.0.0.1, plus your Tailscale address.</small>
-          </span>
-        </label>
-        <label class="settings-radio settings-radio-danger">
-          <input type="radio" name="access" value="lan">
-          <span>
-            <strong data-i18n="s.accessLan">Local network (risk)</strong>
-            <small data-i18n="s.accessLanBody">Binds 0.0.0.0. Plain HTTP, reachable by anyone on the network. Only for networks you fully trust.</small>
-          </span>
-        </label>
-      </div>
-    </section>
-
-    <section class="settings-card">
-      <h2 data-i18n="s.rangesTitle">Trusted ranges</h2>
-      <p class="form-hint" data-i18n="s.rangesHint">One CIDR or IP per line. These are overlay networks you assert are already encrypted (Tailscale, WireGuard, …).</p>
-      <p class="form-hint settings-example-hint" data-i18n="s.rangesExample">Example: 100.64.0.0/10 (Tailscale)</p>
-      <textarea id="ranges" rows="4" spellcheck="false" placeholder="100.64.0.0/10"></textarea>
-      <p class="form-err" id="ranges-err" hidden></p>
-    </section>
-
+    <!-- Hidden until load() confirms this browser is on 127.0.0.1: fail
+         closed, so there is no flash of editable controls for a device that
+         turns out not to be allowed to change them. -->
+    <div id="security-controls" hidden>
     <div class="settings-actions">
       <button type="button" class="btn-solid" id="btn-save" data-i18n="s.save">Save</button>
       <span class="settings-status" id="save-status"></span>
     </div>
 
-    <section class="settings-card" id="devices-card">
-      <h2 data-i18n="s.devicesTitle">Paired devices</h2>
-      <p class="form-hint" data-i18n="s.devicesHint">Browsers that can reach Homebase when Access is not Local only. Revoking logs that device out on the next request.</p>
-      <ul class="device-list" id="device-list"></ul>
-      <p class="form-hint" id="device-empty" hidden data-i18n="s.devicesEmpty">No devices paired yet. After switching Access off Local only, run <code>homebase pair</code> on this machine.</p>
+    <section class="settings-card">
+      <h2 data-i18n="s.accessTitle">Access</h2>
+      <p class="form-hint" data-i18n="s.accessHint">Saving restarts the service automatically.</p>
+      <div class="settings-radios" id="access-radios">
+        <label class="settings-radio">
+          <input type="radio" name="access" value="private">
+          <span>
+            <strong data-i18n="s.accessPrivate">Trusted range</strong>
+            <small data-i18n="s.accessPrivateBody">Default. This machine on 127.0.0.1, plus addresses in the ranges below.</small>
+          </span>
+        </label>
+        <label class="settings-radio">
+          <input type="radio" name="access" value="lan">
+          <span>
+            <strong data-i18n="s.accessLan">All local networks</strong>
+            <small data-i18n="s.accessLanBody">Every private IPv4 on this machine. Public addresses are never bound.</small>
+          </span>
+        </label>
+      </div>
     </section>
 
-    <div class="settings-ack" id="lan-ack" hidden>
-      <label>
-        <input type="checkbox" id="ack-checkbox">
-        <span data-i18n="s.ackLan">I understand this exposes Homebase over plain HTTP to my local network, and that anyone on that network could gain full control of this machine.</span>
-      </label>
+    <section class="settings-card" id="ranges-card">
+      <h2 data-i18n="s.rangesTitle">Trusted ranges</h2>
+      <p class="form-hint" data-i18n="s.rangesHint">One private CIDR or IP per line, at most 5. Overlay networks you assert are already encrypted (Tailscale, WireGuard, …).</p>
+      <p class="form-hint settings-example-hint" data-i18n="s.rangesExample">Example: 100.64.0.0/10 (Tailscale), 192.168.0.0/16 (LAN)</p>
+      <textarea id="ranges" rows="5" spellcheck="false" placeholder="100.64.0.0/10&#10;192.168.0.0/16"></textarea>
+      <p class="form-err" id="ranges-err" hidden></p>
+    </section>
+
+    <section class="settings-card" id="devices-card">
+      <div class="settings-card-head">
+        <h2 data-i18n="s.devicesTitle">Paired devices</h2>
+        <button type="button" class="btn-tiny btn-danger" id="btn-revoke-all" hidden data-i18n="s.devicesRevokeAll">Revoke all</button>
+      </div>
+      <p class="form-hint" data-i18n="s.devicesHint">Browsers that can reach Homebase from another device. Revoking logs that device out on the next request.</p>
+      <ul class="device-list" id="device-list"></ul>
+      <p class="form-hint" id="device-empty" hidden data-i18n="s.devicesEmpty">No devices paired yet. Run <code>homebase pair</code> on this machine.</p>
+    </section>
     </div>
+    </section>
   </main>
+
+  <div class="modal" id="save-confirm" hidden>
+    <div class="sheet">
+      <p class="settings-confirm-body" data-i18n="s.confirmBody">Homebase uses unencrypted HTTP. When deployed on a regular LAN, other devices on the same network may perform a man-in-the-middle attack; security depends on whether that network is trusted. Prefer access via an already-encrypted network such as Tailscale or WireGuard.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-solid" id="btn-confirm-save" data-i18n="s.confirmSave">Save</button>
+        <button type="button" class="btn-ghost" id="btn-confirm-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="revoke-confirm" hidden>
+    <div class="sheet">
+      <p class="settings-confirm-body" data-i18n="s.devicesRevokeAllBody">Revoke every paired device? They will need to run homebase pair again.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-solid btn-danger" id="btn-confirm-revoke" data-i18n="s.devicesRevokeAll">Revoke all</button>
+        <button type="button" class="btn-ghost" id="btn-revoke-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/js/i18n.js"></script>
   <script src="/js/settings.js"></script>

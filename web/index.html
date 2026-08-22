@@ -9,18 +9,23 @@
   <title>Homebase</title>
   <link rel="stylesheet" href="/vendor/xterm/xterm.css">
   <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/prefs.js"></script>
 </head>
 <body>
+  <div class="toast" id="copy-toast" aria-live="polite" hidden></div>
   <div class="app" id="app">
     <header class="chrome" id="chrome">
       <button type="button" class="nav-toggle" id="nav-toggle" data-i18n-aria="aria.openWindows" aria-controls="sidebar" aria-expanded="false">
         <span class="nav-bars" aria-hidden="true"></span>
       </button>
       <div class="chrome-copy">
-        <div class="chrome-name">Homebase</div>
+        <span class="led" id="chrome-led" aria-hidden="true"></span>
         <div class="chrome-host" id="chrome-host"></div>
       </div>
-      <span class="led" id="chrome-led" aria-hidden="true"></span>
+      <div class="chrome-actions">
+        <button type="button" class="btn-tiny" data-theme-cycle>Sys</button>
+        <a class="btn-tiny" href="/settings.html" title="Settings" data-i18n-title="settings.title">⚙&#xFE0E;</a>
+      </div>
     </header>
     <div class="shell">
       <button type="button" class="scrim" id="scrim" data-i18n-aria="aria.closeWindows" hidden></button>
@@ -29,8 +34,8 @@
           <div class="brand-row">
             <div class="brand-mark">Homebase</div>
             <div class="brand-actions">
-              <button type="button" class="btn-tiny" id="btn-lang" title="Language">EN</button>
-              <a class="btn-tiny" href="/settings.html" title="Settings" data-i18n-title="settings.title">⚙</a>
+              <button type="button" class="btn-tiny" data-theme-cycle>Sys</button>
+              <a class="btn-tiny" href="/settings.html" title="Settings" data-i18n-title="settings.title">⚙&#xFE0E;</a>
             </div>
           </div>
         </header>
@@ -38,6 +43,7 @@
           <span class="listhead-label" data-i18n="sidebar.windows">Windows</span>
           <span class="led" id="side-led" aria-hidden="true"></span>
           <span class="listhead-state" id="side-state"></span>
+          <span class="listhead-clients" id="side-clients" hidden></span>
           <button type="button" class="btn-add" id="btn-window-add" data-i18n="sidebar.new">+ New</button>
         </div>
         <ul class="list" id="window-list"></ul>
@@ -46,6 +52,15 @@
       <main class="main">
         <div class="pane" id="pane">
           <div class="term-wrap" id="term-wrap"></div>
+          <div class="key-toolbar" id="key-toolbar">
+            <button type="button" class="key-btn" id="key-ctrl" data-i18n-aria="aria.keyCtrl">Ctrl</button>
+            <button type="button" class="key-btn" data-key="Escape" data-i18n-aria="aria.keyEsc">Esc</button>
+            <button type="button" class="key-btn" data-key="Tab" data-i18n-aria="aria.keyTab">Tab</button>
+            <button type="button" class="key-btn" data-key="ArrowUp" data-i18n-aria="aria.keyUp">↑</button>
+            <button type="button" class="key-btn" data-key="ArrowDown" data-i18n-aria="aria.keyDown">↓</button>
+            <button type="button" class="key-btn" data-key="ArrowLeft" data-i18n-aria="aria.keyLeft">←</button>
+            <button type="button" class="key-btn" data-key="ArrowRight" data-i18n-aria="aria.keyRight">→</button>
+          </div>
           <div class="pane-status" id="pane-status" hidden>
             <p class="pane-status-line" id="pane-status-line"></p>
             <p class="pane-status-help muted" id="pane-status-help"></p>
@@ -60,7 +75,10 @@
       <h2 data-i18n="rename.title">Rename window</h2>
       <p class="form-hint" data-i18n="rename.hint">A renamed window stops following the running command's own name.</p>
       <input type="hidden" id="r-index">
-      <label data-i18n="rename.name">Name <input id="r-name" required maxlength="64"></label>
+      <label>
+        <span data-i18n="rename.name">Name</span>
+        <input id="r-name" required maxlength="64">
+      </label>
       <p class="form-err" id="rename-form-err" hidden></p>
       <div class="sheet-actions">
         <button type="button" class="btn-ghost" id="btn-rename-cancel" data-i18n="common.cancel">Cancel</button>

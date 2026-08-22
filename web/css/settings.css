@@ -12,7 +12,6 @@
 .settings-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 8px;
 }
 .settings-header .btn-ghost {
@@ -25,6 +24,90 @@
 .settings-page h1 {
   font-size: 20px;
   margin: 8px 0 20px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.settings-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.settings-tab:hover { color: var(--ink); }
+.settings-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.settings-scope-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.settings-toggle:last-child { border-bottom: none; padding-bottom: 0; }
+.settings-toggle input { margin-top: 3px; flex: none; }
+.settings-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.settings-toggle strong { font-size: 13px; }
+.settings-toggle small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.settings-field { margin-bottom: 16px; }
+.settings-field:last-child { margin-bottom: 0; }
+.settings-field > label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.settings-field .form-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+.settings-range {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-range input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.settings-range output {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 2.5ch;
+  text-align: right;
+}
+.settings-field select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
 }
 
 .settings-notice {
@@ -46,6 +129,14 @@
   font-size: 14px;
   margin: 0 0 10px;
 }
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-card-head h2 { margin: 0; }
 .settings-card p {
   color: var(--muted);
   font-size: 13px;
@@ -82,12 +173,17 @@
   border: 1px solid var(--line);
   cursor: pointer;
 }
-.settings-radio:hover { border-color: var(--led-wait); }
+.settings-radio:hover { border-color: var(--accent); }
 .settings-radio input { margin-top: 3px; }
 .settings-radio span { display: flex; flex-direction: column; gap: 2px; }
 .settings-radio strong { font-size: 13px; }
 .settings-radio small { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.settings-radio-danger strong { color: var(--led-err); }
+.settings-confirm-body {
+  color: var(--led-err);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0 0 16px;
+}
 
 #ranges {
   display: block;
@@ -105,27 +201,18 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 8px;
+  margin: 0 0 16px;
 }
+#btn-save.is-dirty {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+#btn-save.is-dirty:hover { color: var(--bg); }
 .settings-status {
   color: var(--muted);
   font-size: 13px;
 }
-
-.settings-ack {
-  margin-top: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--led-err);
-  background: rgba(180, 69, 50, 0.08);
-  font-size: 13px;
-}
-.settings-ack label {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  cursor: pointer;
-}
-.settings-ack input { margin-top: 3px; }
 
 .device-list {
   list-style: none;

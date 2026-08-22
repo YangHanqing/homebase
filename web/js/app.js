@@ -12,6 +12,8 @@
   const chromeLed = document.getElementById("chrome-led");
   const sideLed = document.getElementById("side-led");
   const sideState = document.getElementById("side-state");
+  const sideClients = document.getElementById("side-clients");
+  const copyToast = document.getElementById("copy-toast");
 
   const renameModal = document.getElementById("rename-modal");
   const renameForm = document.getElementById("rename-form");
@@ -92,7 +94,10 @@
     const cls = "led " + (st.state || "");
     sideLed.className = cls;
     chromeLed.className = cls;
-    sideState.textContent = t(LABEL[st.state]) || st.state || "";
+    // The led dot already carries "connected" (green); the word next to it
+    // is only useful for the states where color alone isn't enough context.
+    sideState.textContent = st.state === "connected" ? "" : (t(LABEL[st.state]) || st.state || "");
+    sideState.title = st.state === "disconnected" ? t("status.disconnectedHint") : "";
 
     const bad = st.state === "error" ||
       (st.state === "disconnected" && st.code && st.code !== "ws_closed");
@@ -197,6 +202,20 @@
     listMsg.hidden = !text;
   }
 
+  // Anyone attached to the tmux session — another Homebase tab, or a plain
+  // `tmux attach` over ssh — can shrink this view via tmux's smallest-client
+  // resize behavior, so surface the raw count rather than just "connected".
+  function renderClients(count) {
+    if (!count) {
+      sideClients.hidden = true;
+      return;
+    }
+    sideClients.hidden = false;
+    sideClients.textContent = t("sidebar.clients", { count: count });
+    sideClients.title = t("sidebar.clientsHint", { count: count });
+    sideClients.classList.toggle("is-crowded", count > 1);
+  }
+
   function windowsPath(suffix) {
     return "/api/windows" + (suffix || "");
   }
@@ -210,6 +229,7 @@
       windows = (body && body.windows) || [];
       showListMsg(windows.length ? "" : t("list.empty"));
       renderWindows();
+      renderClients(body && body.clients);
     }).catch(function (err) {
       showListMsg(err.message);
     }).finally(function () {
@@ -240,7 +260,11 @@
   }
 
   function newWindow() {
-    act(api(windowsPath(), { method: "POST" }));
+    act(api(windowsPath(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dir: homebasePref("newWindowDir", "same") })
+    }));
   }
 
   function killWindow(index) {
@@ -279,6 +303,21 @@
 
   // ---- wiring -------------------------------------------------------------
 
+  let toastTimer = null;
+  document.addEventListener("homebase:copied", function () {
+    copyToast.hidden = false;
+    copyToast.textContent = t("toast.copied");
+    // Restart the fade-in on repeated copies instead of stacking timers.
+    copyToast.classList.remove("is-shown");
+    void copyToast.offsetWidth;
+    copyToast.classList.add("is-shown");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      copyToast.classList.remove("is-shown");
+      copyToast.hidden = true;
+    }, 1400);
+  });
+
   document.getElementById("btn-window-add").addEventListener("click", newWindow);
   document.getElementById("btn-rename-cancel").addEventListener("click", function () {
     renameModal.hidden = true;
@@ -309,18 +348,27 @@
   document.addEventListener("homebase:lang-changed", function () {
     renderWindows();
     renderStatus(lastStatus);
+    renderThemeButtons();
   });
 
-  (function hideRemoteSettings() {
-    const h = (location.hostname || "").toLowerCase();
-    if (h === "127.0.0.1" || h === "localhost" || h === "[::1]") {
-      return;
-    }
-    const a = document.querySelector('a[href="/settings.html"]');
-    if (a) {
-      a.hidden = true;
-    }
-  })();
+  function renderThemeButtons() {
+    const theme = window.homebasePrefs.get("theme");
+    const name = t("theme." + theme);
+    const title = t("theme.title", { name: name });
+    document.querySelectorAll("[data-theme-cycle]").forEach(function (btn) {
+      btn.textContent = name;
+      btn.title = title;
+      btn.setAttribute("aria-label", title);
+    });
+  }
+
+  document.querySelectorAll("[data-theme-cycle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      window.homebasePrefs.cycleTheme();
+    });
+  });
+  document.addEventListener("homebase:prefs-changed", renderThemeButtons);
+  renderThemeButtons();
 
   // ---- sizing -------------------------------------------------------------
 
@@ -337,6 +385,15 @@
     }, 32);
   });
   ro.observe(document.getElementById("pane"));
+
+  // Changing the terminal font size resizes the grid without resizing the
+  // pane, so the ResizeObserver above never fires for it.
+  document.addEventListener("homebase:refit", function () {
+    const size = homebaseFitSize(fit, term);
+    if (session) {
+      session.setSize(size.cols, size.rows);
+    }
+  });
 
   function syncAppHeight() {
     const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
@@ -381,10 +438,68 @@
 
   // ---- terminal input -----------------------------------------------------
 
-  term.onData(function (data) {
-    if (session) {
-      session.sendInput(data);
+  // On-screen keyboards can't produce Ctrl+<key>. "Ctrl" arms a one-shot
+  // modifier: the next character typed (from any keyboard, any input method)
+  // passes through here as plain text regardless of how it was produced, so
+  // turning it into a control byte works even where real keydown metadata
+  // (ctrlKey, key code) is unreliable on mobile.
+  const keyCtrlBtn = document.getElementById("key-ctrl");
+  let ctrlArmed = false;
+
+  function setCtrlArmed(v) {
+    ctrlArmed = v;
+    if (keyCtrlBtn) {
+      keyCtrlBtn.classList.toggle("is-active", v);
     }
+  }
+
+  function ctrlByte(ch) {
+    const c = ch.toUpperCase().charCodeAt(0);
+    if (c >= 64 && c <= 95) {
+      return String.fromCharCode(c - 64);
+    }
+    if (ch === "?") {
+      return String.fromCharCode(127);
+    }
+    return null;
+  }
+
+  term.onData(function (data) {
+    if (!session) {
+      return;
+    }
+    if (ctrlArmed) {
+      setCtrlArmed(false);
+      const byte = data.length === 1 ? ctrlByte(data) : null;
+      session.sendInput(byte === null ? data : byte);
+      return;
+    }
+    session.sendInput(data);
+  });
+
+  if (keyCtrlBtn) {
+    keyCtrlBtn.addEventListener("click", function () {
+      setCtrlArmed(!ctrlArmed);
+      term.focus();
+    });
+  }
+
+  const KEY_SEQ = {
+    Escape: "\x1b",
+    Tab: "\t",
+    ArrowUp: "\x1b[A",
+    ArrowDown: "\x1b[B",
+    ArrowRight: "\x1b[C",
+    ArrowLeft: "\x1b[D"
+  };
+  document.querySelectorAll(".key-btn[data-key]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const seq = KEY_SEQ[btn.getAttribute("data-key")];
+      if (seq && session) {
+        session.sendInput(seq);
+      }
+      term.focus();
+    });
   });
 
   // ---- boot ---------------------------------------------------------------

@@ -22,6 +22,9 @@ type Server struct {
 	Log     *slog.Logger
 	// NewTmux overrides control-channel construction in tests only.
 	NewTmux func() tmux.Client
+	// Restart, if set, is invoked after a successful Settings PUT so the
+	// process can rebind. The callback must not block the request.
+	Restart func()
 }
 
 // NewMux is the HTTP surface.
@@ -46,6 +49,7 @@ func NewMuxServer(s *Server) http.Handler {
 	}
 	if s.Devices != nil {
 		mux.HandleFunc("GET /api/devices", s.handleDevices)
+		mux.HandleFunc("DELETE /api/devices", s.handleDevicesRevokeAll)
 		mux.HandleFunc("DELETE /api/devices/{id}", s.handleDevice)
 	}
 	if s.Store != nil && s.Dialer != nil {

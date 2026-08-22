@@ -58,6 +58,14 @@ func ListArgs() []string {
 	return []string{"list-windows", "-t", SessionName, "-F", listFormat}
 }
 
+// ClientsArgs lists the tmux clients attached to the session, one per line.
+// Anyone attached — a Homebase browser tab or a plain `tmux attach` over ssh
+// — counts, because any of them can shrink the shared window via tmux's
+// smallest-client resize behavior.
+func ClientsArgs() []string {
+	return []string{"list-clients", "-t", SessionName}
+}
+
 // CurrentPathArgs prints the working directory of the session's currently
 // active pane, used to seed a new window's start directory.
 func CurrentPathArgs() []string {

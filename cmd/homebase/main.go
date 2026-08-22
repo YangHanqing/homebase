@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 
@@ -67,8 +68,7 @@ Commands:
   version    print the build version
 
 After 'homebase start', open the printed URL on this machine. To reach it
-from another device: Settings → Access, then 'homebase restart' and
-'homebase pair'.
+from another device: Settings → Access, then 'homebase pair'.
 `
 
 func printHelp(w io.Writer) {
@@ -139,7 +139,7 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 func baseURL(res listen.Result) string {
 	host := res.Host
 	if res.Unspecified {
-		if ips := listen.LocalIPv4s(); len(ips) > 0 {
+		if ips := listen.PrivateIPv4s(); len(ips) > 0 {
 			host = ips[0]
 		} else {
 			host = "127.0.0.1"
@@ -155,10 +155,8 @@ func loopbackURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-// pairURLs builds the links to hand the browser. When the listener is bound to
-// a concrete address we know exactly what to print; bound to 0.0.0.0 we cannot
-// know which interface the browser will come in on, so every routable local
-// IPv4 is offered and the operator picks the reachable one.
+// pairURLs builds the links to hand the browser. Loopback is omitted when any
+// other bind address exists — pairing is for another device.
 func pairURLs(res listen.Result, token string) []string {
 	path := auth.PairPath + "?t=" + token
 	hostPort := func(h string) string {
@@ -167,16 +165,34 @@ func pairURLs(res listen.Result, token string) []string {
 		}
 		return fmt.Sprintf("http://%s:%d%s", h, res.Port, path)
 	}
-	if !res.Unspecified {
-		return []string{hostPort(res.Host)}
+	seen := map[string]bool{}
+	var hosts []string
+	add := func(h string) {
+		h = strings.TrimSpace(h)
+		if h == "" || seen[h] {
+			return
+		}
+		if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+			return
+		}
+		seen[h] = true
+		hosts = append(hosts, h)
 	}
-	ips := listen.LocalIPv4s()
-	if len(ips) == 0 {
+	add(res.Host)
+	for _, a := range res.BindAddrs() {
+		h, _, err := net.SplitHostPort(a)
+		if err != nil {
+			add(a)
+			continue
+		}
+		add(h)
+	}
+	if len(hosts) == 0 {
 		return []string{hostPort("127.0.0.1")}
 	}
-	out := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		out = append(out, hostPort(ip))
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, hostPort(h))
 	}
 	return out
 }

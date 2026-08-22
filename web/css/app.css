@@ -1,29 +1,56 @@
+/* Dark is the base palette. Light is applied either because the system asks
+   for it (and the user has not pinned dark), or because the user pinned light
+   from the theme control next to Settings — data-theme is set by js/prefs.js
+   before first paint. The two light blocks must stay byte-identical; a media
+   query and an attribute selector cannot share one rule. */
 :root {
   color-scheme: light dark;
   --bg: #1a1916;
   --panel: #25231f;
+  --hover: #2b2924;
   --line: #3a3732;
   --ink: #e8e4db;
   --muted: #9a9488;
+  --accent: #d4a017;
   --led-wait: #d4a017;
   --led-ok: #3d8c6e;
-  --led-err: #b44532;
+  --led-err: #e07060;
   --ui: system-ui, sans-serif;
   --mono: ui-monospace, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg: #f6f3ec;
     --panel: #ffffff;
+    --hover: #f0ebe3;
     --line: #d9d4c8;
     --ink: #1a1916;
     --muted: #6f6a62;
+    --accent: #8a6508;
     --led-wait: #b8860b;
     --led-ok: #2d6a50;
     --led-err: #b44532;
   }
 }
+
+:root[data-theme="light"] {
+  --bg: #f6f3ec;
+  --panel: #ffffff;
+  --hover: #f0ebe3;
+  --line: #d9d4c8;
+  --ink: #1a1916;
+  --muted: #6f6a62;
+  --accent: #8a6508;
+  --led-wait: #b8860b;
+  --led-ok: #2d6a50;
+  --led-err: #b44532;
+}
+
+/* Pin the UA's own widgets (scrollbars, form controls) to the chosen side,
+   otherwise a pinned page keeps system-coloured scrollbars. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body {
@@ -90,24 +117,37 @@ button, input { touch-action: manipulation; }
   justify-content: space-between;
   gap: 8px;
 }
-.brand-actions {
+.brand-actions,
+.chrome-actions {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 0 0 auto;
 }
-.brand-actions .btn-tiny {
+.brand-actions .btn-tiny,
+.chrome-actions .btn-tiny {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   line-height: 1;
   padding: 6px 8px;
   border: 1px solid var(--line);
   text-decoration: none;
   color: var(--ink);
+  text-align: center;
 }
-.brand-actions .btn-tiny:hover { border-color: var(--led-wait); color: var(--led-wait); }
+.brand-actions [data-theme-cycle],
+.chrome-actions [data-theme-cycle] {
+  min-width: 3.5em;
+}
+.brand-actions .btn-tiny:hover,
+.chrome-actions .btn-tiny:hover { border-color: var(--accent); color: var(--accent); }
+.chrome-actions { display: none; }
 
 .listhead {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto auto;
   gap: 8px;
   align-items: center;
   padding: 12px 16px 8px;
@@ -126,6 +166,14 @@ button, input { touch-action: manipulation; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.listhead-clients {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.listhead-clients.is-crowded { color: var(--led-err); }
+.listhead-clients[hidden] { display: none; }
 
 .list-msg {
   color: var(--muted);
@@ -144,11 +192,12 @@ button, input { touch-action: manipulation; }
   align-items: center;
   justify-content: center;
   background: none;
-  border: 1px solid var(--line);
+  border: none;
   color: var(--ink);
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   padding: 0;
+  margin-left: -6px;
   flex: 0 0 auto;
   cursor: pointer;
 }
@@ -199,7 +248,7 @@ button, input { touch-action: manipulation; }
   padding: 6px 10px;
   font-size: 12px;
 }
-.btn-add:hover, .btn-solid:hover { border-color: var(--led-wait); color: var(--led-wait); }
+.btn-add:hover, .btn-solid:hover { border-color: var(--accent); color: var(--accent); }
 .btn-ghost {
   background: none;
   border: none;
@@ -218,10 +267,11 @@ button, input { touch-action: manipulation; }
 .btn-add:focus-visible,
 .btn-solid:focus-visible,
 .btn-ghost:focus-visible,
+.btn-tiny:focus-visible,
 .plate-main:focus-visible,
 .hostbar select:focus-visible,
 .sheet input:focus-visible {
-  outline: 1px solid var(--led-wait);
+  outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -247,10 +297,10 @@ button, input { touch-action: manipulation; }
   border-left-width: 2px;
   border-bottom: 1px solid var(--line);
 }
-.plate:hover { background: #2b2924; }
+.plate:hover { background: var(--hover); }
 .plate.is-active {
-  background: #2b2924;
-  border-left-color: var(--led-wait);
+  background: var(--hover);
+  border-left-color: var(--accent);
 }
 
 .plate-main {
@@ -272,7 +322,7 @@ button, input { touch-action: manipulation; }
   font-size: 11px;
   color: var(--muted);
 }
-.plate.is-active .plate-index { color: var(--led-wait); }
+.plate.is-active .plate-index { color: var(--accent); }
 
 .led {
   width: 8px;
@@ -342,7 +392,7 @@ button, input { touch-action: manipulation; }
   flex-direction: column;
   gap: 4px;
   padding: 10px 14px;
-  background: rgba(37, 35, 31, 0.94);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
   border-top: 1px solid var(--line);
   font-size: 12px;
   user-select: text;
@@ -353,12 +403,53 @@ button, input { touch-action: manipulation; }
 .pane-status-help { font-size: 11px; line-height: 1.5; }
 .term-wrap {
   position: absolute;
-  inset: 0;
+  inset: 0 8px;
 }
 .term-wrap .xterm, .term-wrap .xterm-viewport {
   width: 100%;
   height: 100%;
 }
+
+/* Virtual Ctrl/Esc/Tab/arrow row: on-screen keyboards can't send these.
+   Hidden on desktop, where a real keyboard already has them. */
+.key-toolbar {
+  display: none;
+}
+.key-btn {
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 36px;
+  min-height: 40px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.key-btn:active { background: var(--bg); }
+.key-btn.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+}
+
+.toast {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--line);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.toast[hidden] { display: none; }
+.toast.is-shown { opacity: 1; }
 
 .modal {
   position: fixed;
@@ -419,10 +510,10 @@ button, input { touch-action: manipulation; }
   .chrome {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 52px;
-    padding: 6px 10px;
-    padding-top: max(6px, env(safe-area-inset-top));
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 10px;
+    padding-top: env(safe-area-inset-top);
     padding-left: max(10px, env(safe-area-inset-left));
     padding-right: max(10px, env(safe-area-inset-right));
     background: var(--panel);
@@ -430,26 +521,22 @@ button, input { touch-action: manipulation; }
     flex: 0 0 auto;
   }
   .chrome-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
     flex: 1;
   }
-  .chrome-name {
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
   .chrome-host {
-    font-family: var(--mono);
-    color: var(--muted);
-    font-size: 11px;
-    margin-top: 2px;
+    font-size: 14px;
+    color: var(--ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .chrome .led { margin-top: 0; flex: 0 0 auto; }
   .chrome .led[hidden] { display: none; }
+  .chrome-actions { display: flex; }
 
   .nav-toggle { display: inline-flex; }
 
@@ -482,11 +569,11 @@ button, input { touch-action: manipulation; }
     box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35);
   }
 
-  .brand {
-    padding-top: 14px;
+  .brand { display: none; }
+  .chrome-actions .btn-tiny {
+    min-height: 36px;
+    min-width: 40px;
   }
-  .brand-mark { display: none; }
-  .brand-actions .btn-tiny { min-height: 44px; min-width: 40px; }
 
   .list {
     -webkit-overflow-scrolling: touch;
@@ -527,15 +614,28 @@ button, input { touch-action: manipulation; }
     padding: 12px;
     min-height: 44px;
   }
+
+  .term-wrap {
+    inset: 0 8px 44px;
+  }
+  .pane-status {
+    inset: auto 0 44px 0;
+  }
+  .key-toolbar {
+    display: flex;
+    position: absolute;
+    inset: auto 0 0 0;
+    gap: 1px;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--line);
+    border-top: 1px solid var(--line);
+  }
 }
 
 @media (max-height: 500px) {
   .chrome {
-    min-height: 44px;
-    padding-top: max(4px, env(safe-area-inset-top));
-    padding-bottom: 4px;
+    min-height: 40px;
   }
-  .chrome-host { display: none; }
   .sheet {
     padding-top: 12px;
   }

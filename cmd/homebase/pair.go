@@ -25,7 +25,7 @@ func runPair(args []string) int {
 	}
 	if !r.res.NeedsAuth() {
 		fmt.Fprintf(os.Stderr, "access is %q, which binds loopback only — no pairing needed.\n", r.cfg.Access)
-		fmt.Fprintf(os.Stderr, "Open %s on this machine, or change Access in Settings and run 'homebase restart'.\n", baseURL(r.res))
+		fmt.Fprintf(os.Stderr, "Open %s on this machine, or change Access in Settings.\n", baseURL(r.res))
 		return 1
 	}
 
@@ -40,15 +40,8 @@ func runPair(args []string) int {
 	printPairLinks(pairURLs(r.res, token), expires.Format("15:04:05"), devices.TokenTTL.Minutes())
 	if !r.res.Trusted {
 		fmt.Println()
-		fmt.Println("WARNING: this link is plain HTTP, not HTTPS. Anyone else on the same")
-		fmt.Println("network could intercept it and gain full control of this machine.")
-		fmt.Println("Only open it on a network you fully trust. See the README for details.")
-	}
-	if r.res.Unspecified {
-		fmt.Println()
-		fmt.Println("Note: the listener is bound to 0.0.0.0, so Homebase cannot tell which")
-		fmt.Println("address your browser will use — every candidate address on this machine")
-		fmt.Println("is listed above; any of them works with the same /pair?t=... path.")
+		fmt.Println("WARNING: this link is unencrypted HTTP. On a regular LAN, other devices")
+		fmt.Println("on the same network may intercept it. Prefer Tailscale or WireGuard.")
 	}
 	fmt.Println()
 	return 0
@@ -132,7 +125,7 @@ func runAccess(args []string) int {
 	}
 	want := config.Access(strings.ToLower(tier))
 	if !config.ValidAccess(want) {
-		fmt.Fprintf(os.Stderr, "unknown access tier %q (want local, private, or lan)\n", tier)
+		fmt.Fprintf(os.Stderr, "unknown access tier %q (want private or lan)\n", tier)
 		return 2
 	}
 	if err := store.SetAccess(want); err != nil {
@@ -141,12 +134,9 @@ func runAccess(args []string) int {
 	}
 	fmt.Printf("access = %s. Run 'homebase restart' for this to take effect.\n", want)
 	if want == config.AccessLAN {
-		fmt.Println("WARNING: lan binds 0.0.0.0 over plain HTTP. Anyone on the same network")
-		fmt.Println("can potentially intercept traffic and gain full control of this machine.")
-		fmt.Println("Only do this on a network you fully trust.")
+		fmt.Println("WARNING: lan binds every private IPv4 on this machine over unencrypted HTTP.")
+		fmt.Println("On a regular LAN, other devices may intercept traffic. Prefer Tailscale or WireGuard.")
 	}
-	if want != config.AccessLocal {
-		fmt.Println("After restarting, run 'homebase pair' to get a login link for each device.")
-	}
+	fmt.Println("After restarting, run 'homebase pair' to get a login link for each device.")
 	return 0
 }

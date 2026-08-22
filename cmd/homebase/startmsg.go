@@ -46,12 +46,9 @@ func printStartSuccess(r *resolved) int {
 
 	fmt.Println()
 	if zh {
-		fmt.Println("Homebase 是明文 HTTP。别的设备请走 Tailscale；安全性来自 Tailscale，不是 Homebase 自己。")
-		fmt.Println("改完 Settings 后执行：  homebase restart")
+		fmt.Println("Homebase 是明文 HTTP。别的设备请走 Tailscale 或 WireGuard。")
 	} else {
-		fmt.Println("Homebase is plain HTTP. Other devices should connect over Tailscale.")
-		fmt.Println("Security comes from Tailscale, not from Homebase itself.")
-		fmt.Println("After changing Settings, run:  homebase restart")
+		fmt.Println("Homebase is plain HTTP. Other devices should connect over Tailscale or WireGuard.")
 	}
 
 	if r.res.NeedsAuth() {
@@ -61,13 +58,13 @@ func printStartSuccess(r *resolved) int {
 }
 
 func printLANAddrs(res listen.Result, zh bool) {
-	ips := listen.LocalIPv4s()
+	ips := listen.PrivateIPv4s()
 	if zh {
 		fmt.Println()
-		fmt.Println("局域网（明文 HTTP，同一网络上的人都能访问）：")
+		fmt.Println("局域网（明文 HTTP，安全取决于该网络是否可信）：")
 	} else {
 		fmt.Println()
-		fmt.Println("On the local network (plain HTTP — anyone on this LAN can reach this):")
+		fmt.Println("On the local network (plain HTTP — security depends on whether that network is trusted):")
 	}
 	if len(ips) == 0 {
 		fmt.Printf("  %s\n", strings.TrimRight(baseURL(res), "/"))

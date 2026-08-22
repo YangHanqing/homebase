@@ -38,9 +38,9 @@ type Result struct {
 	Trusted     bool // inside one of the configured trusted ranges
 	Unspecified bool // 0.0.0.0 / ::
 
-	// ExtraAddrs are additional host:port listeners. access=private binds the
-	// trusted-range address *and* 127.0.0.1 so this machine is always
-	// reachable without binding 0.0.0.0 (which would also open the LAN).
+	// ExtraAddrs are additional host:port listeners. private and lan always
+	// bind 127.0.0.1 as well as the chosen private addresses, so Settings
+	// stays reachable on this machine without binding 0.0.0.0.
 	ExtraAddrs []string
 
 	// TierFallback is set when the private tier asked for a trusted-range
@@ -89,13 +89,12 @@ func ParseTrustedRanges(ranges []string) []*net.IPNet {
 
 // Resolve picks the bind host:port for a tier.
 //
-//	local   → 127.0.0.1
 //	private → first local address inside trustedRanges, else loopback with TierFallback set
-//	lan     → 0.0.0.0
+//	lan     → every non-public IPv4 on this machine, plus loopback
 //
-// An explicit -listen / listen_addr overrides the address but cannot escape the
-// tier: asking for a routable address under access=local is an error, not a
-// silent public bind.
+// Public and unspecified addresses are never bound. An explicit -listen /
+// listen_addr may pick a single non-public address but cannot open the
+// public internet.
 func Resolve(tier config.Access, flagListen, configListen string, port int, trustedRanges []string, lookup LookupIPv4) (Result, error) {
 	if !config.ValidAccess(tier) {
 		return Result{}, fmt.Errorf("%w: %q", config.ErrAccess, tier)
@@ -111,6 +110,7 @@ func Resolve(tier config.Access, flagListen, configListen string, port int, trus
 
 	var (
 		host     string
+		extras   []string
 		fallback bool
 	)
 	bindPort := port
@@ -122,10 +122,13 @@ func Resolve(tier config.Access, flagListen, configListen string, port int, trus
 		host, bindPort = h, p
 	} else {
 		switch tier {
-		case config.AccessLocal:
-			host = "127.0.0.1"
 		case config.AccessLAN:
-			host = "0.0.0.0"
+			ips := listPrivateIPv4s()
+			if len(ips) == 0 {
+				return Result{}, fmt.Errorf("access is lan but this machine has no private IPv4 address")
+			}
+			host = ips[0]
+			extras = ips[1:]
 		case config.AccessPrivate:
 			ip := trustedAddr(trustedNets, lookup)
 			if ip == "" {
@@ -137,16 +140,50 @@ func Resolve(tier config.Access, flagListen, configListen string, port int, trus
 		}
 	}
 
-	res := classify(host, bindPort, trustedNets)
-	res.TierFallback = fallback
-	if tier == config.AccessPrivate && !res.Loopback && !res.Unspecified {
-		res.ExtraAddrs = []string{joinHostPort("127.0.0.1", bindPort)}
+	if err := rejectPublicHost(host); err != nil {
+		return Result{}, err
 	}
 
-	if tier == config.AccessLocal && !res.Loopback {
-		return Result{}, fmt.Errorf("refusing to bind %q: access is %q, which binds loopback only (set access to private or lan)", res.Addr, tier)
+	res := classify(host, bindPort, trustedNets)
+	res.TierFallback = fallback
+	if !res.Loopback {
+		loop := joinHostPort("127.0.0.1", bindPort)
+		seen := map[string]bool{res.Addr: true, loop: true}
+		out := []string{loop}
+		for _, ip := range extras {
+			if err := rejectPublicHost(ip); err != nil {
+				continue
+			}
+			a := joinHostPort(ip, bindPort)
+			if seen[a] {
+				continue
+			}
+			seen[a] = true
+			out = append(out, a)
+		}
+		res.ExtraAddrs = out
 	}
 	return res, nil
+}
+
+func rejectPublicHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("refusing to bind an unspecified address")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("refusing to bind %q: not an IP address", host)
+	}
+	if ip.IsLoopback() {
+		return nil
+	}
+	if ip.IsUnspecified() || !config.IPIsNonPublic(ip) {
+		return fmt.Errorf("refusing to bind %q: public and unspecified addresses are not allowed", host)
+	}
+	return nil
 }
 
 func classify(host string, port int, trustedNets []*net.IPNet) Result {
@@ -236,10 +273,16 @@ func scanInterfaces(trustedNets []*net.IPNet) string {
 	return ""
 }
 
-// LocalIPv4s lists this machine's routable IPv4 addresses, used to print
-// candidate pairing URLs when the listener is bound to 0.0.0.0 and therefore
-// cannot know which address the browser will use.
-func LocalIPv4s() []string {
+// listPrivateIPv4s is the interface scanner used by access=lan. Tests replace it.
+var listPrivateIPv4s = scanPrivateIPv4s
+
+// PrivateIPv4s lists this machine's non-public IPv4 addresses (RFC1918, CGNAT,
+// link-local). Public addresses are omitted — Homebase will not bind them.
+func PrivateIPv4s() []string {
+	return scanPrivateIPv4s()
+}
+
+func scanPrivateIPv4s() []string {
 	var out []string
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -259,7 +302,7 @@ func LocalIPv4s() []string {
 				continue
 			}
 			v4 := ipnet.IP.To4()
-			if v4 == nil || !unicastIPv4(v4) || v4.IsLinkLocalUnicast() {
+			if v4 == nil || !unicastIPv4(v4) || !config.IPIsNonPublic(v4) {
 				continue
 			}
 			out = append(out, v4.String())
@@ -267,6 +310,9 @@ func LocalIPv4s() []string {
 	}
 	return out
 }
+
+// LocalIPv4s is the historical name for PrivateIPv4s.
+func LocalIPv4s() []string { return PrivateIPv4s() }
 
 func unicastIPv4(ip net.IP) bool {
 	ip4 := ip.To4()

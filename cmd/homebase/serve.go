@@ -62,6 +62,14 @@ func runServe(args []string) int {
 		Listen:  res.Addr,
 		Dialer:  session.LocalDialer{},
 		Log:     log,
+		Restart: func() {
+			go func() {
+				time.Sleep(400 * time.Millisecond)
+				if err := kickRestart(); err != nil {
+					log.Warn("settings saved but the service did not restart; run homebase restart", "err", err)
+				}
+			}()
+		},
 	})
 
 	if res.NeedsAuth() {

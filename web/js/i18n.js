@@ -8,6 +8,13 @@
     en: {
       "aria.openWindows": "Open window list",
       "aria.closeWindows": "Close window list",
+      "aria.keyCtrl": "Ctrl (tap, then the key)",
+      "aria.keyEsc": "Esc",
+      "aria.keyTab": "Tab",
+      "aria.keyUp": "Up",
+      "aria.keyDown": "Down",
+      "aria.keyLeft": "Left",
+      "aria.keyRight": "Right",
       "sidebar.windows": "Windows",
       "sidebar.new": "+ New",
       "settings.title": "Settings",
@@ -25,46 +32,76 @@
       "list.empty": "No windows yet — one appears as soon as you connect.",
       "status.connected": "Connected",
       "status.connecting": "Connecting",
-      "status.disconnected": "Disconnected · retrying",
+      "status.disconnected": "Disconnected",
+      "status.disconnectedHint": "Disconnected · retrying",
       "status.error": "Error",
+      "sidebar.clients": "· {count} live",
+      "sidebar.clientsHint": "· {count} watching",
+      "toast.copied": "Copied",
       "help.enotmux": "tmux is not installed on this machine. Install it and reconnect to start a new session.",
       "help.pty_spawn": "Could not start the local tmux session. Check the Homebase process log.",
       "help.ws_closed": "",
 
+      "theme.system": "Sys",
+      "theme.dark": "Dark",
+      "theme.light": "Light",
+      "theme.title": "Theme: {name}",
+
       "s.back": "← Back",
       "s.title": "Settings",
+      "s.tabAppearance": "Preferences",
+      "s.tabSecurity": "Security",
+      "s.prefsScope": "Stored in this browser only. Each device keeps its own settings, and these never change how Homebase listens on the network.",
+      "s.langTitle": "Language",
+      "s.langAuto": "Auto",
+      "s.langAutoBody": "Match this browser's language.",
+      "s.behaviourTitle": "Behaviour",
+      "s.copySelect": "Copy selected text automatically",
+      "s.copySelectBody": "Selecting text in the terminal puts it on this device's clipboard. The selection never goes to the terminal or the host.",
+      "s.cursorBlink": "Blinking cursor",
+      "s.cursorBlinkBody": "Turn off to save a little battery on a screen left open.",
+      "s.terminalTitle": "Terminal",
+      "s.newWindowDir": "New window directory",
+      "s.newWindowDirSame": "Same as current window",
+      "s.newWindowDirHome": "Home (~)",
+      "s.fontSize": "Font size",
+      "s.fontSizeBody": "Changing this re-measures the grid and tells tmux the new size.",
+      "s.scrollback": "Scrollback",
+      "s.scrollbackBody": "Lines kept in the browser. tmux keeps its own history separately.",
       "s.loopbackOnly": "Settings can only be viewed and changed from a browser running on this machine (127.0.0.1). Open this page locally to make changes.",
-      "s.httpTitle": "This runs over plain HTTP, not HTTPS",
-      "s.httpBody": "Nothing encrypts the traffic between your browser and Homebase. Whether that's fine depends entirely on the network you expose it to:",
-      "s.httpLocalLabel": "On 127.0.0.1 (this machine only):",
-      "s.httpLocalBody": "safe — traffic never leaves the machine.",
-      "s.httpTrustedLabel": "On a trusted range below:",
-      "s.httpTrustedBody": "safe only if that range really is an already-encrypted overlay network (Tailscale, WireGuard, Headscale, ZeroTier, ...). Homebase cannot verify this — it's your own assertion.",
-      "s.httpLanLabel": "On any other network (LAN, public/hotel/office Wi-Fi):",
-      "s.httpLanBody": "do not enable this. Anyone else on that network could potentially intercept your session and gain full control of this machine — the same level of access as sitting at its keyboard.",
       "s.accessTitle": "Access",
-      "s.accessHint": "After saving, run homebase restart on this machine.",
-      "s.accessLocal": "Local only",
-      "s.accessLocalBody": "127.0.0.1 only. Nothing leaves this machine. Default and safest.",
+      "s.accessHint": "Saving restarts the service automatically.",
       "s.accessPrivate": "Trusted range",
-      "s.accessPrivateBody": "Default. This machine on 127.0.0.1, plus your Tailscale address.",
-      "s.accessLan": "Local network (risk)",
-      "s.accessLanBody": "Binds 0.0.0.0. Plain HTTP, reachable by anyone on the network. Only for networks you fully trust.",
+      "s.accessPrivateBody": "Default. This machine on 127.0.0.1, plus addresses in the ranges below.",
+      "s.accessLan": "All local networks",
+      "s.accessLanBody": "Every private IPv4 on this machine. Public addresses are never bound.",
       "s.rangesTitle": "Trusted ranges",
-      "s.rangesHint": "One CIDR or IP per line. These are overlay networks you assert are already encrypted (Tailscale, WireGuard, …).",
-      "s.rangesExample": "Example: 100.64.0.0/10 (Tailscale)",
+      "s.rangesHint": "One private CIDR or IP per line, at most 5. Overlay networks you assert are already encrypted (Tailscale, WireGuard, …).",
+      "s.rangesExample": "Example: 100.64.0.0/10 (Tailscale), 192.168.0.0/16 (LAN)",
+      "s.rangesMax": "At most 5 ranges.",
       "s.save": "Save",
-      "s.saved": "Saved. On this machine, run:  homebase restart",
-      "s.ackLan": "I understand this exposes Homebase over plain HTTP to my local network, and that anyone on that network could gain full control of this machine.",
-      "s.ackRequired": "Please check the box above to confirm you understand the risk.",
+      "s.saved": "Saved.",
+      "s.confirmBody": "Homebase uses unencrypted HTTP. When deployed on a regular LAN, other devices on the same network may perform a man-in-the-middle attack; security depends on whether that network is trusted. Prefer access via an already-encrypted network such as Tailscale or WireGuard.",
+      "s.confirmSave": "Save",
+      "s.restarting": "Restarting…",
+      "s.restartTimeout": "Saved, but the service did not come back. On this machine, run:  homebase restart",
       "s.devicesTitle": "Paired devices",
-      "s.devicesHint": "Browsers that can reach Homebase when Access is not Local only. Revoking logs that device out on the next request.",
-      "s.devicesEmpty": "No devices paired yet. After switching Access off Local only, run homebase pair on this machine.",
-      "s.devicesRevoke": "Revoke"
+      "s.devicesHint": "Browsers that can reach Homebase from another device. Revoking logs that device out on the next request.",
+      "s.devicesEmpty": "No devices paired yet. Run homebase pair on this machine.",
+      "s.devicesRevoke": "Revoke",
+      "s.devicesRevokeAll": "Revoke all",
+      "s.devicesRevokeAllBody": "Revoke every paired device? They will need to run homebase pair again."
     },
     zh: {
       "aria.openWindows": "打开窗口列表",
       "aria.closeWindows": "关闭窗口列表",
+      "aria.keyCtrl": "Ctrl（先点这个，再点下一个键）",
+      "aria.keyEsc": "Esc",
+      "aria.keyTab": "Tab",
+      "aria.keyUp": "上",
+      "aria.keyDown": "下",
+      "aria.keyLeft": "左",
+      "aria.keyRight": "右",
       "sidebar.windows": "窗口",
       "sidebar.new": "＋ 新建",
       "settings.title": "设置",
@@ -83,57 +120,93 @@
       "status.connected": "已连接",
       "status.connecting": "连接中",
       "status.disconnected": "已断开 · 重试中",
+      "status.disconnectedHint": "已断开 · 重试中",
       "status.error": "出错",
+      "sidebar.clients": "· {count} 人在看",
+      "sidebar.clientsHint": "· {count} 人在看",
+      "toast.copied": "已复制",
       "help.enotmux": "这台机器上没装 tmux。装好后重连即可开始新 session。",
       "help.pty_spawn": "本机 tmux/pty 没拉起来。请查看 Homebase 进程日志。",
       "help.ws_closed": "",
 
+      "theme.system": "系统",
+      "theme.dark": "深色",
+      "theme.light": "浅色",
+      "theme.title": "主题：{name}",
+
       "s.back": "← 返回",
       "s.title": "设置",
+      "s.tabAppearance": "偏好",
+      "s.tabSecurity": "安全",
+      "s.prefsScope": "只保存在当前浏览器中。每台设备各自独立，且不会影响 Homebase 在网络上的监听方式。",
+      "s.langTitle": "语言",
+      "s.langAuto": "自动",
+      "s.langAutoBody": "使用本浏览器的语言设置。",
+      "s.behaviourTitle": "行为",
+      "s.copySelect": "选中文本自动复制",
+      "s.copySelectBody": "在终端中选中文本即复制到本设备剪贴板。选中内容不会被发送到终端或主机。",
+      "s.cursorBlink": "光标闪烁",
+      "s.cursorBlinkBody": "长时间开着页面时，关掉可以省一点电。",
+      "s.terminalTitle": "终端",
+      "s.newWindowDir": "新建窗口的目录",
+      "s.newWindowDirSame": "和当前窗口相同",
+      "s.newWindowDirHome": "主目录（~）",
+      "s.fontSize": "字号",
+      "s.fontSizeBody": "修改后会重新计算终端网格，并把新尺寸告知 tmux。",
+      "s.scrollback": "回滚行数",
+      "s.scrollbackBody": "浏览器中保留的行数。tmux 自己另有一份历史记录。",
       "s.loopbackOnly": "设置只能在本机（127.0.0.1）打开的浏览器中查看和修改。请在本机打开这个页面进行修改。",
-      "s.httpTitle": "本服务使用明文 HTTP，没有加密",
-      "s.httpBody": "浏览器和 Homebase 之间的数据不会被加密。是否安全完全取决于你把它暴露在哪个网络上：",
-      "s.httpLocalLabel": "在 127.0.0.1（仅本机）访问：",
-      "s.httpLocalBody": "安全——数据不会离开这台电脑。",
-      "s.httpTrustedLabel": "在下方“信任网段”内访问：",
-      "s.httpTrustedBody": "只有当该网段确实是已经加密的 VPN/Overlay 网络（Tailscale、WireGuard、Headscale、ZeroTier 等）时才安全。Homebase 无法验证这一点——这是你自己的声明。",
-      "s.httpLanLabel": "在其他任何网络（局域网、公共/酒店/办公室 Wi-Fi）：",
-      "s.httpLanBody": "请不要开启。同一网络下的其他人有可能截获你的会话，从而完全控制这台电脑——权限等同于有人直接坐在电脑前操作。",
       "s.accessTitle": "访问范围",
-      "s.accessHint": "保存后，请在这台机器的终端执行 homebase restart。",
-      "s.accessLocal": "仅本机",
-      "s.accessLocalBody": "只监听 127.0.0.1，数据不会离开本机。默认且最安全。",
+      "s.accessHint": "保存后服务会自动重启。",
       "s.accessPrivate": "信任网段",
-      "s.accessPrivateBody": "默认。本机 127.0.0.1，再加上你的 Tailscale 地址。",
-      "s.accessLan": "局域网（有风险）",
-      "s.accessLanBody": "监听 0.0.0.0。明文 HTTP，同网络下任何人都能访问。仅限完全信任的网络使用。",
+      "s.accessPrivateBody": "默认。本机 127.0.0.1，加上下方信任网段内的地址。",
+      "s.accessLan": "所有局域网",
+      "s.accessLanBody": "本机上每一个私网 IPv4。公网地址不会监听。",
       "s.rangesTitle": "信任网段",
-      "s.rangesHint": "每行一个 CIDR 或 IP。这些是你声明已经被加密的 overlay 网络（Tailscale、WireGuard 等）。",
-      "s.rangesExample": "示例：100.64.0.0/10（Tailscale）",
+      "s.rangesHint": "每行一个私网 CIDR 或 IP，最多 5 行。这些是你声明已经被加密的 overlay 网络（Tailscale、WireGuard 等）。",
+      "s.rangesExample": "示例：100.64.0.0/10（Tailscale）、192.168.0.0/16（局域网）",
+      "s.rangesMax": "最多 5 个网段。",
       "s.save": "保存",
-      "s.saved": "已保存。请在这台机器的终端执行：homebase restart",
-      "s.ackLan": "我明白这会把 Homebase 以明文 HTTP 暴露给我的局域网，同一网络下的任何人都可能借此完全控制这台电脑。",
-      "s.ackRequired": "请先勾选上方确认框，确认你已了解风险。",
+      "s.saved": "已保存。",
+      "s.confirmBody": "Homebase 使用未加密的 HTTP。部署于普通局域网时，存在同网中间人攻击的可能，安全性取决于该网络是否可信。建议经由 Tailscale、WireGuard 等已加密网络访问。",
+      "s.confirmSave": "确认保存",
+      "s.restarting": "正在重启…",
+      "s.restartTimeout": "已保存，但服务没有恢复。请在本机执行：homebase restart",
       "s.devicesTitle": "已配对设备",
-      "s.devicesHint": "Access 不是「仅本机」时，这些浏览器可以打开 Homebase。吊销后，下一请求起该设备立即失效。",
-      "s.devicesEmpty": "还没有配对设备。把 Access 改成非「仅本机」之后，在这台机器上执行 homebase pair。",
-      "s.devicesRevoke": "吊销"
+      "s.devicesHint": "可以从其他设备打开 Homebase 的浏览器。吊销后，下一请求起该设备立即失效。",
+      "s.devicesEmpty": "还没有配对设备。在这台机器上执行 homebase pair。",
+      "s.devicesRevoke": "吊销",
+      "s.devicesRevokeAll": "吊销全部",
+      "s.devicesRevokeAllBody": "吊销所有已配对设备？它们需要重新执行 homebase pair。"
     }
   };
 
   const LANG_KEY = "homebase.lang";
 
-  function detect() {
-    try {
-      const saved = localStorage.getItem(LANG_KEY);
-      if (saved === "en" || saved === "zh") {
-        return saved;
-      }
-    } catch (e) { /* private mode */ }
+  function browserLang() {
     return (navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
   }
 
-  let lang = detect();
+  function readPref() {
+    try {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved === "en" || saved === "zh" || saved === "auto") {
+        return saved;
+      }
+    } catch (e) { /* private mode */ }
+    return "auto";
+  }
+
+  function resolve(p) {
+    return (p === "zh" || p === "en") ? p : browserLang();
+  }
+
+  function htmlLang(code) {
+    return code === "zh" ? "zh-Hans" : "en";
+  }
+
+  let pref = readPref();
+  let lang = resolve(pref);
 
   function t(key, vars) {
     const table = DICT[lang] || DICT.en;
@@ -149,6 +222,11 @@
   function apply(root) {
     root = root || document;
     root.querySelectorAll("[data-i18n]").forEach(function (el) {
+      // textContent wipes descendants. Skip anything that still has a control
+      // nested in it — that is how the rename field used to disappear on load.
+      if (el.querySelector("input, textarea, select, button")) {
+        return;
+      }
       el.textContent = t(el.getAttribute("data-i18n"));
     });
     root.querySelectorAll("[data-i18n-title]").forEach(function (el) {
@@ -162,26 +240,43 @@
     });
   }
 
-  function setLang(l) {
-    lang = (l === "zh") ? "zh" : "en";
-    try { localStorage.setItem(LANG_KEY, lang); } catch (e) { /* private mode */ }
-    document.documentElement.lang = lang === "zh" ? "zh-Hans" : "en";
+  function commit() {
+    document.documentElement.lang = htmlLang(lang);
     apply(document);
-    document.dispatchEvent(new CustomEvent("homebase:lang-changed", { detail: { lang: lang } }));
+    document.dispatchEvent(new CustomEvent("homebase:lang-changed", {
+      detail: { lang: lang, pref: pref }
+    }));
   }
 
-  window.homebaseI18n = { t: t, apply: apply, setLang: setLang, lang: function () { return lang; } };
+  function setLang(l) {
+    pref = (l === "zh" || l === "en" || l === "auto") ? l : "auto";
+    lang = resolve(pref);
+    try { localStorage.setItem(LANG_KEY, pref); } catch (e) { /* private mode */ }
+    commit();
+  }
+
+  window.addEventListener("languagechange", function () {
+    if (pref !== "auto") {
+      return;
+    }
+    const next = resolve(pref);
+    if (next === lang) {
+      return;
+    }
+    lang = next;
+    commit();
+  });
+
+  window.homebaseI18n = {
+    t: t,
+    apply: apply,
+    setLang: setLang,
+    lang: function () { return lang; },
+    pref: function () { return pref; }
+  };
 
   document.addEventListener("DOMContentLoaded", function () {
-    document.documentElement.lang = lang === "zh" ? "zh-Hans" : "en";
+    document.documentElement.lang = htmlLang(lang);
     apply(document);
-    const btn = document.getElementById("btn-lang");
-    if (btn) {
-      btn.textContent = lang === "zh" ? "中" : "EN";
-      btn.addEventListener("click", function () {
-        setLang(lang === "zh" ? "en" : "zh");
-        btn.textContent = lang === "zh" ? "中" : "EN";
-      });
-    }
   });
 })();

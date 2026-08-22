@@ -131,7 +131,7 @@ func TestKillWindowRefusesTheLastOne(t *testing.T) {
 
 func TestNewWindowParsesIndex(t *testing.T) {
 	c := Client{R: &fakeRunner{out: map[string]string{"new-window": "3\n"}}}
-	idx, err := c.NewWindow(context.Background())
+	idx, err := c.NewWindow(context.Background(), "home")
 	if err != nil || idx != 3 {
 		t.Fatalf("got %d %v", idx, err)
 	}
@@ -144,7 +144,7 @@ func TestNewWindowStartsInHome(t *testing.T) {
 	}
 	f := &fakeRunner{out: map[string]string{"new-window": "1\n"}}
 	c := Client{R: f}
-	if _, err := c.NewWindow(context.Background()); err != nil {
+	if _, err := c.NewWindow(context.Background(), "home"); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
@@ -155,6 +155,50 @@ func TestNewWindowStartsInHome(t *testing.T) {
 	}
 	if !contains(got, "-c") || !contains(got, home) {
 		t.Fatalf("new-window should start in home %q, got %q", home, got)
+	}
+}
+
+func TestNewWindowDefaultsToCurrentPaneDir(t *testing.T) {
+	f := &fakeRunner{out: map[string]string{
+		"new-window":      "1\n",
+		"display-message": "/tmp/proj\n",
+	}}
+	c := Client{R: f}
+	if _, err := c.NewWindow(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, args := range f.seen {
+		if args[0] == "new-window" {
+			got = args
+		}
+	}
+	if !contains(got, "-c") || !contains(got, "/tmp/proj") {
+		t.Fatalf("new-window should start in the current pane's directory, got %q", got)
+	}
+}
+
+func TestNewWindowFallsBackToHomeWhenCurrentPathFails(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory")
+	}
+	f := &fakeRunner{
+		out: map[string]string{"new-window": "1\n"},
+		err: map[string]error{"display-message": ErrNoSession},
+	}
+	c := Client{R: f}
+	if _, err := c.NewWindow(context.Background(), "same"); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, args := range f.seen {
+		if args[0] == "new-window" {
+			got = args
+		}
+	}
+	if !contains(got, "-c") || !contains(got, home) {
+		t.Fatalf("new-window should fall back to home %q, got %q", home, got)
 	}
 }
 

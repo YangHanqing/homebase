@@ -1,6 +1,20 @@
+// Which palette the terminal should draw with. "system" defers to the OS;
+// "light"/"dark" are pinned in Settings and must win over it, exactly like the
+// data-theme attribute does for the surrounding page chrome.
+function homebaseWantsLight() {
+  const prefs = window.homebasePrefs;
+  const choice = prefs ? prefs.get("theme") : "system";
+  if (choice === "light") {
+    return true;
+  }
+  if (choice === "dark") {
+    return false;
+  }
+  return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+}
+
 function homebaseTermTheme() {
-  const light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
-  if (light) {
+  if (homebaseWantsLight()) {
     return {
       background: "#f6f3ec",
       foreground: "#1a1916",
@@ -32,25 +46,25 @@ function homebaseTermTheme() {
   };
 }
 
+function homebasePref(key, fallback) {
+  const prefs = window.homebasePrefs;
+  if (!prefs) {
+    return fallback;
+  }
+  const v = prefs.get(key);
+  return v === undefined ? fallback : v;
+}
+
 function homebaseCreateTerminal(container) {
   const term = new Terminal({
-    cursorBlink: true,
+    cursorBlink: homebasePref("cursorBlink", true),
     fontFamily: "ui-monospace, Menlo, monospace",
-    fontSize: 13,
+    fontSize: homebasePref("fontSize", 13),
     lineHeight: 1.2,
     theme: homebaseTermTheme(),
-    scrollback: 4000,
+    scrollback: homebasePref("scrollback", 4000),
     allowProposedApi: true
   });
-  if (window.matchMedia) {
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    const apply = function () { term.options.theme = homebaseTermTheme(); };
-    if (mq.addEventListener) {
-      mq.addEventListener("change", apply);
-    } else if (mq.addListener) {
-      mq.addListener(apply);
-    }
-  }
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   const unicode11 = new Unicode11Addon.Unicode11Addon();
@@ -58,6 +72,30 @@ function homebaseCreateTerminal(container) {
   term.unicode.activeVersion = "11";
   term.open(container);
   homebaseBindCopyOnSelect(term);
+
+  // The system palette moving matters only while theme is "system"; the
+  // preference event covers the pinned cases and everything else.
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const onSystem = function () { term.options.theme = homebaseTermTheme(); };
+    if (mq.addEventListener) {
+      mq.addEventListener("change", onSystem);
+    } else if (mq.addListener) {
+      mq.addListener(onSystem);
+    }
+  }
+  document.addEventListener("homebase:prefs-changed", function () {
+    term.options.theme = homebaseTermTheme();
+    term.options.cursorBlink = homebasePref("cursorBlink", true);
+    term.options.scrollback = homebasePref("scrollback", 4000);
+    const size = homebasePref("fontSize", 13);
+    if (term.options.fontSize !== size) {
+      term.options.fontSize = size;
+      // Cell metrics changed, so the grid must be remeasured and the new
+      // dimensions pushed to the PTY.
+      document.dispatchEvent(new CustomEvent("homebase:refit"));
+    }
+  });
   return { term: term, fit: fit };
 }
 
@@ -66,7 +104,7 @@ function homebaseCreateTerminal(container) {
 // address is HTTP on Tailscale IPv4 (not a secure context).
 function homebaseCopyText(text) {
   if (!text) {
-    return;
+    return false;
   }
   let ok = false;
   const onCopy = function (e) {
@@ -86,23 +124,30 @@ function homebaseCopyText(text) {
     document.removeEventListener("copy", onCopy);
   }
   if (ok) {
-    return;
+    return true;
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).catch(function () {});
+    return true;
   }
+  return false;
 }
 
 function homebaseBindCopyOnSelect(term) {
   let dragging = false;
 
   function copySelection() {
+    // Read the preference at copy time, not at bind time, so toggling it in
+    // Settings takes effect on the open terminal without a reload.
+    if (!homebasePref("copyOnSelect", true)) {
+      return;
+    }
     if (!term.hasSelection()) {
       return;
     }
     const text = term.getSelection();
-    if (text) {
-      homebaseCopyText(text);
+    if (text && homebaseCopyText(text)) {
+      document.dispatchEvent(new CustomEvent("homebase:copied"));
     }
   }
 

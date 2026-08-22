@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -34,9 +35,21 @@ func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {
 			s.writeTmuxError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"windows": windows})
+		// Best-effort: a client-count failure should not hide the window list.
+		clients, err := client.ClientCount(ctx)
+		if err != nil {
+			clients = 0
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"windows": windows, "clients": clients})
 	case http.MethodPost:
-		index, err := client.NewWindow(ctx)
+		var body struct {
+			Dir string `json:"dir"`
+		}
+		if err := decodeJSON(r, &body); err != nil && err != io.EOF {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		index, err := client.NewWindow(ctx, body.Dir)
 		if err != nil {
 			s.writeTmuxError(w, err)
 			return

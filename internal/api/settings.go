@@ -10,7 +10,7 @@ import (
 // requireLoopbackPeer gates the settings endpoints to the machine's own
 // browser, regardless of which access tier is currently running. This is
 // deliberately independent of auth.RequireLoopbackHost (which pins the Host
-// header for the *unauthenticated* local tier only): here we check the actual
+// header for an unauthenticated loopback listener): here we check the actual
 // TCP peer address, so that even on the private/lan tier — where the main UI
 // is reachable from elsewhere and gated by a paired-device cookie instead —
 // changing access/trusted-ranges still requires being on the machine itself.
@@ -69,11 +69,16 @@ func (s *Server) handleSettingsInner(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp := settingsResponse(s.Store.Snapshot())
+		restarting := s.Restart != nil
 		writeJSON(w, http.StatusOK, map[string]any{
 			"access":           resp.Access,
 			"trusted_ranges":   resp.TrustedRanges,
-			"restart_required": true,
+			"restart_required": !restarting,
+			"restarting":       restarting,
 		})
+		if s.Restart != nil {
+			s.Restart()
+		}
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

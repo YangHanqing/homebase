@@ -114,6 +114,47 @@ func TestDeleteDeviceMissing(t *testing.T) {
 	}
 }
 
+func TestRevokeAllDevices(t *testing.T) {
+	dev := testDevices(t)
+	enroll(t, dev, "Phone")
+	enroll(t, dev, "Laptop")
+	h := devicesMux(t, dev)
+
+	rec := doFrom(t, h, http.MethodDelete, "/api/devices", "127.0.0.1:9", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	list, err := dev.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("still have %d devices", len(list))
+	}
+}
+
+func TestRevokeAllDevicesEmpty(t *testing.T) {
+	h := devicesMux(t, testDevices(t))
+	rec := doFrom(t, h, http.MethodDelete, "/api/devices", "127.0.0.1:9", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRevokeAllDevicesRequiresLoopback(t *testing.T) {
+	dev := testDevices(t)
+	enroll(t, dev, "Phone")
+	h := devicesMux(t, dev)
+	rec := doFrom(t, h, http.MethodDelete, "/api/devices", "192.0.2.1:9", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	list, _ := dev.List()
+	if len(list) != 1 {
+		t.Fatal("non-loopback revoke-all must not succeed")
+	}
+}
+
 func TestDeleteDeviceRequiresLoopback(t *testing.T) {
 	dev := testDevices(t)
 	d := enroll(t, dev, "Phone")
@@ -131,12 +172,52 @@ func TestDeleteDeviceRequiresLoopback(t *testing.T) {
 func TestSettingsPutSignalsRestart(t *testing.T) {
 	h := NewMuxServer(&Server{Store: testStore(t)})
 	rec := doFrom(t, h, http.MethodPut, "/api/settings", "127.0.0.1:9",
-		map[string]any{"access": "local", "trusted_ranges": []string{"100.64.0.0/10"}})
+		map[string]any{"access": "private", "trusted_ranges": []string{"100.64.0.0/10"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 	body := decode[map[string]any](t, rec)
 	if body["restart_required"] != true {
 		t.Fatalf("restart_required=%v", body["restart_required"])
+	}
+	if body["restarting"] != false {
+		t.Fatalf("restarting=%v", body["restarting"])
+	}
+}
+
+func TestSettingsPutRejectsLocalAndPublicRange(t *testing.T) {
+	h := NewMuxServer(&Server{Store: testStore(t)})
+	rec := doFrom(t, h, http.MethodPut, "/api/settings", "127.0.0.1:9",
+		map[string]any{"access": "local"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("local status %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doFrom(t, h, http.MethodPut, "/api/settings", "127.0.0.1:9",
+		map[string]any{"access": "private", "trusted_ranges": []string{"0.0.0.0/0"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("public range status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSettingsPutSchedulesRestart(t *testing.T) {
+	called := false
+	h := NewMuxServer(&Server{
+		Store:   testStore(t),
+		Restart: func() { called = true },
+	})
+	rec := doFrom(t, h, http.MethodPut, "/api/settings", "127.0.0.1:9",
+		map[string]any{"access": "private", "trusted_ranges": []string{"100.64.0.0/10"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	body := decode[map[string]any](t, rec)
+	if body["restarting"] != true {
+		t.Fatalf("restarting=%v", body["restarting"])
+	}
+	if body["restart_required"] != false {
+		t.Fatalf("restart_required=%v", body["restart_required"])
+	}
+	if !called {
+		t.Fatal("Restart was not invoked")
 	}
 }

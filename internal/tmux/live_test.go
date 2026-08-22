@@ -56,7 +56,7 @@ func TestLiveControlChannel(t *testing.T) {
 		t.Fatalf("fresh session should have one window, got %+v", got)
 	}
 
-	idx, err := c.NewWindow(ctx)
+	idx, err := c.NewWindow(ctx, "home")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 	t.Cleanup(func() { _ = exec.Command(bin, "kill-server").Run() })
 
 	c := Client{R: LocalRunner{Bin: bin}}
-	idx, err := c.NewWindow(ctx)
+	idx, err := c.NewWindow(ctx, "home")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -103,12 +103,32 @@ func parseWindows(out []byte) []Window {
 	return windows
 }
 
-// NewWindow creates a window and returns its index. New windows start in the
-// user's home directory, like a normal terminal emulator — not in whatever
-// cwd the homebase process happens to have (often "/" under launchd).
-func (c Client) NewWindow(ctx context.Context) (int, error) {
-	home, _ := os.UserHomeDir()
-	out, err := c.R.Run(ctx, NewWindowArgs(home))
+// ClientCount returns how many tmux clients are attached to the session. A
+// missing session means zero, not an error: the PTY connect will create it.
+func (c Client) ClientCount(ctx context.Context) (int, error) {
+	out, err := c.R.Run(ctx, ClientsArgs())
+	if errors.Is(err, ErrNoSession) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// NewWindow creates a window and returns its index. dirMode selects the
+// start directory: "home" always starts in $HOME (not in whatever cwd the
+// homebase process happens to have — often "/" under launchd); anything
+// else, including the default "same", copies the currently active pane's
+// directory, like a normal terminal's new-tab.
+func (c Client) NewWindow(ctx context.Context, dirMode string) (int, error) {
+	out, err := c.R.Run(ctx, NewWindowArgs(c.startDir(ctx, dirMode)))
 	if err != nil {
 		return 0, err
 	}
@@ -117,6 +137,24 @@ func (c Client) NewWindow(ctx context.Context) (int, error) {
 		return 0, errors.New("tmux did not print a window index")
 	}
 	return idx, nil
+}
+
+// startDir resolves the directory a new window should open in. A missing
+// session, or any other lookup failure, falls back to $HOME rather than
+// failing window creation over it.
+func (c Client) startDir(ctx context.Context, dirMode string) string {
+	home, _ := os.UserHomeDir()
+	if dirMode == "home" {
+		return home
+	}
+	out, err := c.R.Run(ctx, CurrentPathArgs())
+	if err != nil {
+		return home
+	}
+	if dir := strings.TrimSpace(string(out)); dir != "" {
+		return dir
+	}
+	return home
 }
 
 // RenameWindow sets a window's name. tmux turns off automatic-rename for that

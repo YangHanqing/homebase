@@ -155,12 +155,42 @@ func TestValidateTrustedRanges(t *testing.T) {
 		t.Fatal("expected error for invalid range")
 	}
 
+	for _, pub := range []string{"0.0.0.0/0", "8.8.8.8", "1.1.1.1/32", "10.0.0.0/7", "203.0.113.0/24", "2001:db8::/32", "::1"} {
+		if _, err := ValidateTrustedRanges([]string{pub}); err == nil {
+			t.Errorf("expected public/IPv6 range %q to be rejected", pub)
+		}
+	}
+
 	tooMany := make([]string, MaxTrustedRanges+1)
 	for i := range tooMany {
 		tooMany[i] = "10.0.0.0/8"
 	}
 	if _, err := ValidateTrustedRanges(tooMany); err == nil {
 		t.Fatal("expected error for too many ranges")
+	}
+}
+
+func TestLoadMigratesLocalAccessToPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"version":4,"access":"local","listen_port":1990}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Snapshot().Access; got != AccessPrivate {
+		t.Fatalf("access=%q, want private", got)
+	}
+}
+
+func TestSetAccessRejectsLocal(t *testing.T) {
+	s, err := Load(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAccess(AccessLocal); err == nil {
+		t.Fatal("expected local to be rejected on write")
 	}
 }
 

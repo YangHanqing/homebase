@@ -29,6 +29,10 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	requireLoopbackPeer(http.HandlerFunc(s.deleteDevice)).ServeHTTP(w, r)
 }
 
+func (s *Server) handleDevicesRevokeAll(w http.ResponseWriter, r *http.Request) {
+	requireLoopbackPeer(http.HandlerFunc(s.revokeAllDevices)).ServeHTTP(w, r)
+}
+
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -62,6 +66,18 @@ func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "could not revoke device")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) revokeAllDevices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.Devices.RevokeAll(); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not revoke devices")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

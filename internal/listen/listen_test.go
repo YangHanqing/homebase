@@ -17,45 +17,62 @@ func noLookup(t *testing.T) LookupIPv4 {
 	}
 }
 
-func TestLocalTierBindsLoopback(t *testing.T) {
-	r, err := Resolve(config.AccessLocal, "", "", 7681, defaultRanges, noLookup(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Addr != "127.0.0.1:7681" {
-		t.Fatalf("got %q", r.Addr)
-	}
-	if !r.Loopback || r.NeedsAuth() {
-		t.Fatalf("local tier should be loopback and unauthenticated: %+v", r)
-	}
-	if !r.NeedsHostCheck() {
-		t.Fatal("loopback must pin the Host header")
+func TestLocalTierRejected(t *testing.T) {
+	if _, err := Resolve(config.AccessLocal, "", "", 7681, defaultRanges, noLookup(t)); err == nil {
+		t.Fatal("access=local is no longer a valid tier")
 	}
 }
 
-// The tier is the gate: -listen picks an address but cannot turn a loopback-only
-// install into a routable one.
-func TestListenFlagCannotEscapeLocalTier(t *testing.T) {
-	for _, in := range []string{"0.0.0.0", "0.0.0.0:7681", "192.168.1.8", "[::]:7681"} {
-		if _, err := Resolve(config.AccessLocal, in, "", 7681, defaultRanges, nil); err == nil {
-			t.Errorf("Resolve(local, %q) succeeded, want refuse", in)
+func TestRefusePublicAndUnspecified(t *testing.T) {
+	for _, in := range []string{"0.0.0.0", "0.0.0.0:7681", "1.1.1.1", "8.8.8.8:1990", "[::]", "[::]:7681", "2001:db8::1"} {
+		if _, err := Resolve(config.AccessPrivate, in, "", 7681, defaultRanges, nil); err == nil {
+			t.Errorf("Resolve(private, %q) succeeded, want refuse", in)
+		}
+		if _, err := Resolve(config.AccessLAN, in, "", 7681, defaultRanges, nil); err == nil {
+			t.Errorf("Resolve(lan, %q) succeeded, want refuse", in)
 		}
 	}
 }
 
-func TestLANTierBindsUnspecified(t *testing.T) {
+func TestLANTierBindsPrivateIPv4s(t *testing.T) {
+	orig := listPrivateIPv4s
+	listPrivateIPv4s = func() []string { return []string{"192.168.1.8", "10.0.0.2"} }
+	t.Cleanup(func() { listPrivateIPv4s = orig })
+
 	r, err := Resolve(config.AccessLAN, "", "", 7681, defaultRanges, noLookup(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Addr != "0.0.0.0:7681" || !r.Unspecified {
-		t.Fatalf("got %+v", r)
+	if r.Unspecified {
+		t.Fatal("lan must not bind 0.0.0.0")
+	}
+	if r.Addr != "192.168.1.8:7681" {
+		t.Fatalf("primary=%q", r.Addr)
 	}
 	if !r.NeedsAuth() {
 		t.Fatalf("lan tier must require pairing: %+v", r)
 	}
 	if r.NeedsHostCheck() {
 		t.Fatal("host pinning is only for the unauthenticated tier")
+	}
+	got := r.BindAddrs()
+	want := []string{"192.168.1.8:7681", "127.0.0.1:7681", "10.0.0.2:7681"}
+	if len(got) != len(want) {
+		t.Fatalf("BindAddrs=%v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("BindAddrs=%v want %v", got, want)
+		}
+	}
+}
+
+func TestLANTierNoPrivateAddress(t *testing.T) {
+	orig := listPrivateIPv4s
+	listPrivateIPv4s = func() []string { return nil }
+	t.Cleanup(func() { listPrivateIPv4s = orig })
+	if _, err := Resolve(config.AccessLAN, "", "", 7681, defaultRanges, noLookup(t)); err == nil {
+		t.Fatal("lan with no private IPv4 must refuse")
 	}
 }
 
@@ -91,14 +108,19 @@ func TestPrivateTierUsesTrustedRange(t *testing.T) {
 }
 
 func TestPrivateTierUsesCustomRange(t *testing.T) {
-	custom := []string{"203.0.113.0/24"}
+	custom := []string{"10.255.255.0/24"}
 	r, err := Resolve(config.AccessPrivate, "", "", 7681, custom, func(context.Context) (string, error) {
-		return "203.0.113.5", nil
+		return "10.255.255.5", nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.TierFallback || !r.Trusted || r.Host != "203.0.113.5" {
+	if scanInterfaces(ParseTrustedRanges(custom)) != "" {
+		// A real interface in this range wins over lookup; posture still holds.
+		if !r.Trusted || r.TierFallback {
+			t.Fatalf("expected a trusted-range address: %+v", r)
+		}
+	} else if r.TierFallback || !r.Trusted || r.Host != "10.255.255.5" {
 		t.Fatalf("expected custom-range address to be picked up: %+v", r)
 	}
 	if got := r.BindAddrs(); len(got) < 2 || got[1] != "127.0.0.1:7681" {
@@ -172,6 +194,15 @@ func TestFlagHostOverridesConfig(t *testing.T) {
 	}
 	if r.Addr != "192.168.1.8:7681" {
 		t.Fatalf("got %q", r.Addr)
+	}
+	loop := false
+	for _, a := range r.BindAddrs() {
+		if a == "127.0.0.1:7681" {
+			loop = true
+		}
+	}
+	if !loop {
+		t.Fatalf("lan -listen must still bind loopback, got %v", r.BindAddrs())
 	}
 }
 
