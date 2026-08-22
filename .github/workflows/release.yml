@@ -18,6 +18,31 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+
+      - name: Install rcodesign
+        run: |
+          curl -fsSL -o /tmp/rcodesign.tar.gz \
+            https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz
+          tar xzf /tmp/rcodesign.tar.gz -C /tmp
+          sudo mv /tmp/apple-codesign-0.29.0-x86_64-unknown-linux-musl/rcodesign /usr/local/bin/
+          rcodesign --version
+
+      - name: Stage Apple signing credentials
+        run: |
+          umask 077
+          echo "${{ secrets.MACOS_CERT_P12 }}" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "${{ secrets.MACOS_CERT_PASSWORD }}" > "$RUNNER_TEMP/cert.password"
+          echo "${{ secrets.APPLE_API_KEY_P8 }}" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+          rcodesign encode-app-store-connect-api-key \
+            -o "$RUNNER_TEMP/api-key.json" \
+            "${{ secrets.APPLE_API_ISSUER_ID }}" \
+            "${{ secrets.APPLE_API_KEY_ID }}" \
+            "$RUNNER_TEMP/AuthKey.p8"
+          echo "RCODESIGN_P12_PATH=$RUNNER_TEMP/cert.p12" >> "$GITHUB_ENV"
+          echo "RCODESIGN_P12_PASSWORD_FILE=$RUNNER_TEMP/cert.password" >> "$GITHUB_ENV"
+          echo "RCODESIGN_API_KEY_JSON=$RUNNER_TEMP/api-key.json" >> "$GITHUB_ENV"
+          echo "RCODESIGN_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -25,3 +50,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wipe staged signing credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.password" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/api-key.json"

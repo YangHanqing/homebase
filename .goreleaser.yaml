@@ -18,6 +18,10 @@ builds:
       - arm64
     ldflags:
       - -s -w -X main.version={{.Version}}
+    hooks:
+      post:
+        - cmd: ./scripts/codesign-darwin.sh "{{ .Path }}"
+          output: true
 
 archives:
   - formats:

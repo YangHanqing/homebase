@@ -2,34 +2,30 @@
 
 *[中文说明](README.zh.md)*
 
-A web terminal for a machine that stays on — a Mac mini, a home server.
-Open a browser and you are in a `tmux` session on that machine. Close the
-tab, sleep the laptop, drop Wi-Fi: the work is still there.
+## What this is
 
-Homebase does not replace tmux. It attaches to **one** session, always named
-`homebase`. The sidebar *is* that session's window list.
+If you have a machine that stays on 24/7 — a Mac mini or a MacBook — and you
+like running Claude Code, Grok Build, or similar CLI agents in a TUI,
+Homebase lets you take over that terminal session from your phone or another
+computer, through a browser. No extra SSH client, and the machine never has
+to be exposed to the public internet.
 
-**Security is Tailscale's job, not Homebase's.** Homebase speaks plain HTTP.
-Other devices should reach it over Tailscale. Do not put it on a raw LAN
-unless you understand the risk.
+Homebase is a single Go binary that runs on that always-on machine. It
+connects the browser to **one fixed tmux session** on that machine (always
+named `homebase`); the sidebar is that session's tmux window list. All
+session state lives in tmux — Homebase is only a PTY forwarding channel:
+closing the tab, sleeping the laptop, or a network drop never interrupts
+whatever is running.
 
-## What you need
+![Homebase web terminal screenshot](.github/images/homebase-ui.png)
 
-**Host** (where `homebase` runs):
+## Prerequisites
 
-| OS | CPU |
-| --- | --- |
-| macOS | Apple Silicon or Intel |
-| Linux | x86_64 or ARM |
-
-Windows cannot be a host. A Windows PC, iPad, or phone is only a browser.
-
-Also:
-
-1. **tmux** on the host (required)
-2. **Tailscale** on the host and on any other device you connect from
-
-## 1. Install tmux
+**tmux (required).** Homebase does not manage session state itself — tmux is
+what actually makes "close the lid, switch devices, keep going" true. The
+browser is just attaching to a tmux session that keeps running; on
+reconnect, tmux redraws the screen from its own scrollback. Without tmux,
+Homebase does not work.
 
 ```bash
 # macOS (Homebrew)
@@ -45,68 +41,118 @@ sudo dnf install tmux
 sudo pacman -S tmux
 ```
 
-## 2. Install Homebase
+**Tailscale (strongly recommended).** Homebase itself speaks plain HTTP —
+it does not provide encryption on its own. It relies on Tailscale to build a
+private network between your devices, so connecting from your phone back to
+the machine at home never requires exposing a port to the public internet.
+Homebase's bind-address policy is built around this: by default it only
+binds the loopback address and your Tailscale range, never a public or
+unspecified address. Both the host and any device connecting to it need
+Tailscale installed and signed into the same tailnet.
+
+## Install and start
 
 ```bash
 curl -fsSL https://github.com/yanghanqing/homebase/releases/latest/download/install.sh | sh
 ```
 
-This only puts the binary in `~/.local/bin`. It does not start anything.
+Running this the first time installs Homebase; running it again later is
+how you upgrade — it downloads the latest binary and atomically replaces
+`~/.local/bin/homebase`. If the service is already running, upgrading
+requires a manual `homebase restart` for the new version to take effect.
 
-## 3. Start
+Then start the service:
 
 ```bash
 homebase start
 ```
 
-On **this machine**, open [http://127.0.0.1:1990](http://127.0.0.1:1990).
+On **this machine**, open the address printed on the command line (default:
+[http://127.0.0.1:1990](http://127.0.0.1:1990)). By default only `127.0.0.1`
+and this machine's Tailscale address are reachable — a LAN address like
+`192.168.x.x` is not, by default. If you want other devices on your local
+network to reach it directly, go to Settings → Access and pick "All local
+networks"; saving restarts the service automatically. The same thing from
+the command line: `homebase access lan && homebase restart`.
 
-By default Homebase is reachable on `127.0.0.1` and on your Tailscale
-address — not on `192.168.x.x`.
+To connect from another device (phone, another computer):
 
-## Another device (Tailscale)
+1. On the host, open Settings (only visible when browsing `127.0.0.1`) and
+   set Access to Trusted range; saving restarts the service automatically.
+2. Run `homebase pair` and open the printed one-time link on another device
+   that is already on the same tailnet. The first time you pair, you need to
+   already be logged into this machine some ordinary way — a local terminal
+   or SSH — before you can run this command: being able to run a command on
+   the machine at all is exactly what proves you're allowed to.
 
-1. On the host, open Settings (the gear; only shown at `127.0.0.1`)
-2. Access should be **Trusted range**. Save, then:
+`homebase pair` prints something like this:
 
-```bash
-homebase restart
-homebase pair
+```
+Open this link on the device you want to pair:
+
+    http://100.101.102.103:1990/pair?t=9f2a6c1e4b7d8a3f5c0e1b2d3a4f5c6e
+
+Valid until 21:45:10 (10 minutes), single use only.
 ```
 
-3. On the other device, while it is on Tailscale, open the printed URL.
+Opening that link in the other device's browser exchanges the token for a
+long-lived login cookie.
 
-## Update
+### macOS: grant Full Disk Access ahead of time
 
-Run the install script again, then restart the service:
-
-```bash
-curl -fsSL https://github.com/yanghanqing/homebase/releases/latest/download/install.sh | sh
-homebase restart
-```
-
-Pin a version with `HOMEBASE_VERSION=v0.1.1` in front of `curl`.
-
-## Without Tailscale: the local network
-
-This is **not** the main path. Settings → Access → **Local network (risk)**,
-save (you will be asked to confirm), then `homebase restart` and
-`homebase pair`. Do not do this on hotel or office Wi-Fi.
+If the host is a Mac, add `~/.local/bin/homebase` to System Settings →
+Privacy & Security → Full Disk Access now. macOS requires a one-time
+interactive click in the GUI to authorize access to folders like Documents,
+Desktop, and Downloads. If you don't set this up in advance, the first time
+Homebase needs to read one of those folders while you're away — operating
+only from your phone or a remote terminal, with no screen-sharing session
+open on this machine — macOS will silently block it, and there is no way to
+click "Allow" remotely.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `homebase start` | Install the user service and run it |
-| `homebase stop` | Stop the service. Config and tmux stay |
-| `homebase restart` | Stop, then start. Run this after changing Access |
-| `homebase status` | Running?, URL, tmux, version |
-| `homebase pair` | One-time login URL (10 minutes, single use) |
-| `homebase version` | Build version |
+| `homebase start` | Registers a user-level background service (a launchd agent on macOS, a systemd user unit on Linux) and starts it |
+| `homebase stop` | Stops the service. Config file and tmux session are untouched |
+| `homebase restart` | Stop, then start — use this after upgrading the binary |
+| `homebase status` | Prints whether it's running, the tmux path, version, bind address, URL, whether pairing is needed, and the number of paired devices |
+| `homebase pair` | Generates a one-time login link, valid for 10 minutes, single use |
+| `homebase version` | Prints the running binary's build version |
 
-One instance per machine. If it is already running, `start` prints the URL
-and does not launch a second copy. If port 1990 is taken by something else,
-start tries 1991, 1992, … and saves the port it used.
+Running `homebase` with no arguments only prints help and starts nothing.
+There is also `homebase serve`, the foreground process that `start`
+registers with the system service manager internally; you shouldn't need to
+call it directly — it's for debugging.
+
+One machine only needs one running copy of Homebase. Running `start` again
+while it's already running does not launch a second instance — it prints
+the address already in use. If port 1990 is taken, it tries 1991, 1992, …
+and remembers whichever port it actually used.
+
+## Security model
+
+Homebase has exactly one security-relevant setting: Access (private / LAN).
+That setting directly decides the address the service binds to, and both
+the authentication requirement (whether pairing is needed) and TLS are
+**derived** from that bind address — they cannot be configured
+independently. In other words, there is no combination that means "bind a
+public address, but skip credentials, and stay unencrypted." Homebase
+refuses by design to bind any publicly routable address or `0.0.0.0`, and
+the `-listen` flag cannot override that. So even a misconfiguration can't
+accidentally expose an unprotected port to the public internet.
+
+The loopback address (`127.0.0.1`) is reachable without pairing; any other
+device must pair first (see "Install and start" above). Pairing does not
+grant any capability beyond what's already there — running `homebase pair`
+requires already being able to run a command on the machine, which is
+exactly the capability Homebase hands out.
+
+Device session credentials are stored only as hashes in the local
+`devices.json`. The plaintext one-time token and session key each appear
+exactly once — on the CLI's stdout, and in the browser's cookie,
+respectively. You can revoke a device's access from the Settings page
+(visible only over a loopback connection).
 
 ## From source
 
