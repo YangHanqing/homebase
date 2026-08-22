@@ -2,6 +2,7 @@ package listen
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	"github.com/yanghanqing/homebase/internal/config"
@@ -104,6 +105,33 @@ func TestPrivateTierUsesTrustedRange(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("private tier must also bind loopback, got %v", r.BindAddrs())
+	}
+}
+
+func TestPrivateTierBindsEveryTrustedRangeAddress(t *testing.T) {
+	orig := listTrustedIPv4s
+	listTrustedIPv4s = func([]*net.IPNet) []string {
+		return []string{"192.168.110.92", "100.81.139.84"}
+	}
+	t.Cleanup(func() { listTrustedIPv4s = orig })
+
+	ranges := []string{"100.64.0.0/10", "192.168.0.0/16"}
+	r, err := Resolve(config.AccessPrivate, "", "", 1990, ranges, noLookup(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Host != "192.168.110.92" || r.TierFallback || !r.Trusted {
+		t.Fatalf("got %+v", r)
+	}
+	got := r.BindAddrs()
+	want := []string{"192.168.110.92:1990", "127.0.0.1:1990", "100.81.139.84:1990"}
+	if len(got) != len(want) {
+		t.Fatalf("BindAddrs=%v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("BindAddrs=%v want %v", got, want)
+		}
 	}
 }
 

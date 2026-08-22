@@ -136,6 +136,38 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 	return seen
 }
 
+func offLoopbackURLs(res listen.Result) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(h string) {
+		h = strings.TrimSpace(h)
+		if h == "" || seen[h] {
+			return
+		}
+		if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+			return
+		}
+		if h == "0.0.0.0" || h == "::" {
+			return
+		}
+		seen[h] = true
+		if strings.Contains(h, ":") {
+			h = "[" + h + "]"
+		}
+		out = append(out, fmt.Sprintf("http://%s:%d", h, res.Port))
+	}
+	add(res.Host)
+	for _, a := range res.BindAddrs() {
+		h, _, err := net.SplitHostPort(a)
+		if err != nil {
+			add(a)
+			continue
+		}
+		add(h)
+	}
+	return out
+}
+
 func baseURL(res listen.Result) string {
 	host := res.Host
 	if res.Unspecified {

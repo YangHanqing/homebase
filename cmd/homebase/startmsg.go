@@ -30,16 +30,19 @@ func printStartSuccess(r *resolved) int {
 	case r.cfg.Access == "lan" || r.res.Unspecified:
 		printLANAddrs(r.res, zh)
 	case r.res.Trusted && !r.res.Loopback:
-		ts := strings.TrimRight(baseURL(r.res), "/")
 		if zh {
 			fmt.Println()
-			fmt.Println("Tailscale 网络上：")
-			fmt.Printf("  %s\n", ts)
-			fmt.Println("  新设备配对：  homebase pair")
+			fmt.Println("信任网段上：")
 		} else {
 			fmt.Println()
-			fmt.Println("On your Tailscale network:")
-			fmt.Printf("  %s\n", ts)
+			fmt.Println("On your trusted networks:")
+		}
+		for _, u := range offLoopbackURLs(r.res) {
+			fmt.Printf("  %s\n", u)
+		}
+		if zh {
+			fmt.Println("  新设备配对：  homebase pair")
+		} else {
 			fmt.Println("  Pair a new device:  homebase pair")
 		}
 	}

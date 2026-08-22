@@ -130,12 +130,13 @@ func Resolve(tier config.Access, flagListen, configListen string, port int, trus
 			host = ips[0]
 			extras = ips[1:]
 		case config.AccessPrivate:
-			ip := trustedAddr(trustedNets, lookup)
-			if ip == "" {
+			ips := trustedAddrs(trustedNets, lookup)
+			if len(ips) == 0 {
 				host = "127.0.0.1"
 				fallback = true
 			} else {
-				host = ip
+				host = ips[0]
+				extras = ips[1:]
 			}
 		}
 	}
@@ -215,17 +216,18 @@ func inAny(ip net.IP, nets []*net.IPNet) bool {
 	return false
 }
 
-// trustedAddr finds this machine's first local IPv4 inside trustedNets. The
-// interface scan comes first because it needs no subprocess and works for any
-// overlay network (Tailscale, WireGuard, Headscale, ZeroTier, plain
-// interfaces...); the Tailscale CLI is a fallback for setups where the
-// address does not show up as a normal interface (e.g. userspace networking).
-func trustedAddr(trustedNets []*net.IPNet, lookup LookupIPv4) string {
+// trustedAddrs finds every local IPv4 inside trustedNets. The interface scan
+// comes first because it needs no subprocess and works for any overlay
+// network (Tailscale, WireGuard, Headscale, ZeroTier, plain interfaces...);
+// the Tailscale CLI is a fallback only when no matching interface address
+// exists (e.g. userspace networking).
+func trustedAddrs(trustedNets []*net.IPNet, lookup LookupIPv4) []string {
 	if len(trustedNets) == 0 {
-		return ""
+		return nil
 	}
-	if ip := scanInterfaces(trustedNets); ip != "" {
-		return ip
+	ips := listTrustedIPv4s(trustedNets)
+	if len(ips) > 0 {
+		return ips
 	}
 	if lookup == nil {
 		lookup = TailscaleIPv4
@@ -234,21 +236,34 @@ func trustedAddr(trustedNets []*net.IPNet, lookup LookupIPv4) string {
 	defer cancel()
 	ip, err := lookup(ctx)
 	if err != nil {
-		return ""
+		return nil
 	}
 	ip = strings.TrimSpace(ip)
 	parsed := net.ParseIP(ip)
 	if parsed == nil || parsed.To4() == nil || !unicastIPv4(parsed) || !inAny(parsed, trustedNets) {
-		return ""
+		return nil
 	}
-	return parsed.To4().String()
+	return []string{parsed.To4().String()}
 }
+
+// listTrustedIPv4s is the interface scanner used by access=private. Tests replace it.
+var listTrustedIPv4s = scanTrustedIPv4s
 
 // scanInterfaces returns the first up, non-loopback IPv4 inside trustedNets.
 func scanInterfaces(trustedNets []*net.IPNet) string {
+	ips := scanTrustedIPv4s(trustedNets)
+	if len(ips) == 0 {
+		return ""
+	}
+	return ips[0]
+}
+
+func scanTrustedIPv4s(trustedNets []*net.IPNet) []string {
+	var out []string
+	seen := map[string]bool{}
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ""
+		return out
 	}
 	for _, ifi := range ifaces {
 		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagLoopback != 0 {
@@ -264,13 +279,18 @@ func scanInterfaces(trustedNets []*net.IPNet) string {
 				continue
 			}
 			v4 := ipnet.IP.To4()
-			if v4 == nil || !inAny(v4, trustedNets) {
+			if v4 == nil || !unicastIPv4(v4) || !inAny(v4, trustedNets) {
 				continue
 			}
-			return v4.String()
+			s := v4.String()
+			if seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
 		}
 	}
-	return ""
+	return out
 }
 
 // listPrivateIPv4s is the interface scanner used by access=lan. Tests replace it.

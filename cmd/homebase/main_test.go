@@ -8,7 +8,32 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/yanghanqing/homebase/internal/listen"
 )
+
+func TestPairURLsPrintsEveryNonLoopbackBind(t *testing.T) {
+	res := listen.Result{
+		Addr:       "192.168.110.92:1990",
+		Host:       "192.168.110.92",
+		Port:       1990,
+		Trusted:    true,
+		ExtraAddrs: []string{"127.0.0.1:1990", "100.81.139.84:1990"},
+	}
+	got := pairURLs(res, "tok")
+	want := []string{
+		"http://192.168.110.92:1990/pair?t=tok",
+		"http://100.81.139.84:1990/pair?t=tok",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
+	}
+}
 
 func TestStartHelpDoesNotStart(t *testing.T) {
 	if code := runStart([]string{"-h"}); code != 0 {

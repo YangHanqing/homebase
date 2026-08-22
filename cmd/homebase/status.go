@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/yanghanqing/homebase/internal/tmux"
 )
@@ -39,8 +40,13 @@ func runStatus(args []string) int {
 
 	list, _ := r.dev.List()
 	fmt.Printf("access         %s\n", r.cfg.Access)
-	fmt.Printf("bind           %s\n", r.res.Addr)
-	fmt.Printf("url            %s\n", baseURL(r.res))
+	fmt.Printf("bind           %s\n", strings.Join(r.res.BindAddrs(), " "))
+	urls := offLoopbackURLs(r.res)
+	if len(urls) == 0 {
+		fmt.Printf("url            %s\n", baseURL(r.res))
+	} else {
+		fmt.Printf("url            %s\n", strings.Join(urls, " "))
+	}
 	fmt.Printf("trusted range  %v\n", r.res.Trusted)
 	fmt.Printf("pairing        %v\n", r.res.NeedsAuth())
 	fmt.Printf("devices        %d\n", len(list))
