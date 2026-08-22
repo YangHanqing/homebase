@@ -19,6 +19,17 @@ type proc struct {
 	stderr *limitedBuf
 	mu     sync.Mutex
 	killed bool
+
+	// reaped is closed once Wait has returned, which is the moment the pid
+	// (and its pgid) become reusable by the kernel. Kill's delayed SIGKILL
+	// waits on it so the escalation cannot land on an unrelated process
+	// group that happened to inherit the number.
+	reaped     chan struct{}
+	reapedOnce sync.Once
+}
+
+func newProc(cmd *exec.Cmd, file *os.File, stderr *limitedBuf) *proc {
+	return &proc{cmd: cmd, file: file, stderr: stderr, reaped: make(chan struct{})}
 }
 
 func (p *proc) Read(b []byte) (int, error) {
@@ -53,7 +64,9 @@ func (p *proc) Wait() error {
 	if p.cmd == nil {
 		return nil
 	}
-	return p.cmd.Wait()
+	err := p.cmd.Wait()
+	p.reapedOnce.Do(func() { close(p.reaped) })
+	return err
 }
 
 func (p *proc) Kill() error {
@@ -80,8 +93,14 @@ func (p *proc) Kill() error {
 	}
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	go func() {
-		time.Sleep(killGrace)
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		timer := time.NewTimer(killGrace)
+		defer timer.Stop()
+		select {
+		case <-p.reaped:
+			// Already exited and reaped; the pgid may belong to someone else now.
+		case <-timer.C:
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
 	}()
 	return nil
 }

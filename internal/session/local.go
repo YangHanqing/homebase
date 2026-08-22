@@ -42,7 +42,7 @@ func (d LocalDialer) Start(ctx context.Context, sz Size) (Proc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", CodePTYSpawn, err)
 	}
-	p := &proc{cmd: cmd, file: ptmx, stderr: stderr}
+	p := newProc(cmd, ptmx, stderr)
 	go func() {
 		<-ctx.Done()
 		_ = p.Kill()

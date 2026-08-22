@@ -16,17 +16,23 @@ import (
 // changing access/trusted-ranges still requires being on the machine itself.
 func requireLoopbackPeer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
+		if !loopbackPeer(r) {
 			writeError(w, http.StatusForbidden, "settings can only be changed from this machine (open it in a browser running on the Homebase host itself)")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// loopbackPeer reports whether the TCP client is on this machine. It reads the
+// peer address, never a header: X-Forwarded-For and friends are attacker-set.
+func loopbackPeer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 type settingsBody struct {
