@@ -30,6 +30,14 @@ func ValidateName(s string) error {
 	if s == ";" {
 		return fmt.Errorf("name is reserved")
 	}
+	// tmux parses its arguments with getopt, which keeps scanning for flags
+	// past "-t target": `rename-window -t homebase:0 -F x` dies with "command
+	// rename-window: unknown flag -F". The argv is never a shell, so this is
+	// not an injection -- it is just a rename that fails with tmux's internal
+	// vocabulary instead of something the user can act on.
+	if strings.HasPrefix(s, "-") {
+		return fmt.Errorf("name cannot start with a dash")
+	}
 	for _, r := range s {
 		if r == utf8.RuneError || unicode.IsControl(r) {
 			return fmt.Errorf("name contains a control character")

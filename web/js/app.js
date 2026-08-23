@@ -52,14 +52,45 @@
     return mobileMq.matches;
   }
 
+  // Only the REST handlers answer in JSON. The auth gate serves HTML, and
+  // net/http's own rejections (bad host, method not allowed) are plain text,
+  // so parsing every response as JSON turned a revoked device into
+  // "Unexpected token '<'" in the sidebar — precisely the moment the user
+  // most needs to be told what happened.
+  let reloading = false;
+
+  function unpaired() {
+    if (!reloading) {
+      reloading = true;
+      // The gate answers "/" with the pairing instructions; a reload is what
+      // puts them on screen.
+      location.reload();
+    }
+    const err = new Error(t("list.unpaired"));
+    err.status = 401;
+    return err;
+  }
+
   function api(path, opts) {
     return fetch(path, opts).then(function (res) {
+      if (res.status === 401) {
+        throw unpaired();
+      }
       if (res.status === 204) {
         return null;
       }
-      return res.json().then(function (body) {
+      return res.text().then(function (text) {
+        let body = null;
+        try {
+          body = text ? JSON.parse(text) : null;
+        } catch (e) {
+          body = null;
+        }
         if (!res.ok) {
-          const err = new Error((body && body.error) || res.statusText);
+          const plain = body ? "" : text.trim().split("\n")[0].slice(0, 200);
+          const err = new Error(
+            (body && body.error) || plain || t("list.serverError") || res.statusText
+          );
           err.status = res.status;
           err.code = body && body.code;
           throw err;

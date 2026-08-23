@@ -213,19 +213,28 @@ func setEnv(env []string, key, val string) []string {
 	return append(env, prefix+val)
 }
 
-// classifyOutput turns tmux/ssh chatter into the sentinel errors callers
+// classifyOutput turns tmux's own complaints into the sentinel errors callers
 // switch on. It never returns raw PTY bytes; stderr is trimmed to one line.
+//
+// Only stderr is inspected, and only on a non-zero exit. stdout is data: a
+// window is named by the user, and `list-windows -F` prints those names
+// straight back. Matching sentinels against stdout meant a window called
+// "no server running" turned a perfectly healthy list into ErrNoSession —
+// every window vanished from the sidebar and KillWindow started reporting
+// "last window" because the list it checked was empty.
 func classifyOutput(stdout, stderr []byte, exitErr error) error {
-	lower := strings.ToLower(string(stdout) + string(stderr))
-	// tmux says "can't find session: homebase", or "no server running on …"
-	// when nothing has ever attached on this machine.
-	if strings.Contains(lower, "can't find session") ||
-		strings.Contains(lower, "no such session") ||
-		strings.Contains(lower, "no server running") {
-		return ErrNoSession
-	}
 	if exitErr == nil {
 		return nil
+	}
+	lower := strings.ToLower(string(stderr))
+	// tmux says "can't find session: homebase", "no server running on …", or
+	// "error connecting to … (No such file or directory)" when nothing has
+	// ever attached on this machine.
+	if strings.Contains(lower, "can't find session") ||
+		strings.Contains(lower, "no such session") ||
+		strings.Contains(lower, "no server running") ||
+		strings.Contains(lower, "error connecting to") {
+		return ErrNoSession
 	}
 	msg := strings.TrimSpace(firstLine(string(stderr)))
 	if msg == "" {

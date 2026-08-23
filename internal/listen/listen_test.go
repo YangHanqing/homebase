@@ -135,6 +135,13 @@ func TestPrivateTierBindsEveryTrustedRangeAddress(t *testing.T) {
 	}
 }
 
+// hasTrustedInterface reports whether this machine really carries an address
+// inside these ranges. Resolve prefers such an address over any lookup, so a
+// developer on Tailscale and a CI runner without it take different branches.
+func hasTrustedInterface(ranges []string) bool {
+	return len(scanTrustedIPv4s(ParseTrustedRanges(ranges))) > 0
+}
+
 func TestPrivateTierUsesCustomRange(t *testing.T) {
 	custom := []string{"10.255.255.0/24"}
 	r, err := Resolve(config.AccessPrivate, "", "", 7681, custom, func(context.Context) (string, error) {
@@ -143,7 +150,7 @@ func TestPrivateTierUsesCustomRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scanInterfaces(ParseTrustedRanges(custom)) != "" {
+	if hasTrustedInterface(custom) {
 		// A real interface in this range wins over lookup; posture still holds.
 		if !r.Trusted || r.TierFallback {
 			t.Fatalf("expected a trusted-range address: %+v", r)
@@ -157,7 +164,7 @@ func TestPrivateTierUsesCustomRange(t *testing.T) {
 }
 
 func TestPrivateTierFallsBackToLoopback(t *testing.T) {
-	if scanInterfaces(ParseTrustedRanges(defaultRanges)) != "" {
+	if hasTrustedInterface(defaultRanges) {
 		t.Skip("machine has a real Tailscale address")
 	}
 	r, err := Resolve(config.AccessPrivate, "", "", 7681, defaultRanges, func(context.Context) (string, error) {

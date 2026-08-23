@@ -72,6 +72,10 @@ func runServe(args []string) int {
 		},
 	})
 
+	// Both postures are derived in listen.Result and read from it here. Do not
+	// re-derive either one from the address: they are complements today, and
+	// an `else` branch would silently pick the wrong one the day they stop
+	// being complements.
 	if res.NeedsAuth() {
 		gate := &auth.Gate{Devices: r.dev, Log: log, Port: strconv.Itoa(res.Port)}
 		h = gate.Wrap(h)
@@ -80,7 +84,8 @@ func runServe(args []string) int {
 		if len(list) == 0 {
 			log.Warn("no devices paired yet — run 'homebase pair' to get a login link")
 		}
-	} else {
+	}
+	if res.NeedsHostCheck() {
 		// Loopback is unauthenticated, so the Host header is the only thing
 		// standing between a malicious web page and a shell here.
 		h = auth.RequireLoopbackHost(strconv.Itoa(res.Port), h)

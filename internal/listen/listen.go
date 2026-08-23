@@ -249,15 +249,6 @@ func trustedAddrs(trustedNets []*net.IPNet, lookup LookupIPv4) []string {
 // listTrustedIPv4s is the interface scanner used by access=private. Tests replace it.
 var listTrustedIPv4s = scanTrustedIPv4s
 
-// scanInterfaces returns the first up, non-loopback IPv4 inside trustedNets.
-func scanInterfaces(trustedNets []*net.IPNet) string {
-	ips := scanTrustedIPv4s(trustedNets)
-	if len(ips) == 0 {
-		return ""
-	}
-	return ips[0]
-}
-
 func scanTrustedIPv4s(trustedNets []*net.IPNet) []string {
 	var out []string
 	seen := map[string]bool{}

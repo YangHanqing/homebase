@@ -1,9 +1,12 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -114,9 +117,55 @@ func TestAtomicWriteLeavesNoTmp(t *testing.T) {
 	if _, err := Load(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "config.json.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("tmp leftover: %v", err)
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, e := range ents {
+		if e.Name() != "config.json" {
+			t.Fatalf("tmp leftover: %s", e.Name())
+		}
+	}
+}
+
+// Two Homebase processes write these files — the server and the `homebase
+// pair` CLI — and they share no lock. Concurrent writers may lose an update,
+// but must never leave a torn document behind: a corrupt devices.json is a
+// startup error, which would revoke every paired device at once.
+func TestAtomicWriteConcurrentWritersNeverTear(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.json")
+
+	docs := make([][]byte, 8)
+	for i := range docs {
+		// Different lengths, so a torn write shows up as a short or spliced file.
+		docs[i] = []byte(`{"version":1,"who":"` + strings.Repeat(string(rune('a'+i)), 200*(i+1)) + `"}`)
+	}
+
+	var wg sync.WaitGroup
+	for round := 0; round < 20; round++ {
+		for i := range docs {
+			wg.Add(1)
+			go func(data []byte) {
+				defer wg.Done()
+				if err := AtomicWrite(path, data); err != nil {
+					t.Errorf("AtomicWrite: %v", err)
+				}
+			}(docs[i])
+		}
+	}
+	wg.Wait()
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range docs {
+		if bytes.Equal(got, want) {
+			return
+		}
+	}
+	t.Fatalf("file is not any writer's complete document: %q", got)
 }
 
 // An old v1/v2/v3 file must still open: unknown fields (windows, tls, hosts)
@@ -158,6 +207,19 @@ func TestValidateTrustedRanges(t *testing.T) {
 	for _, pub := range []string{"0.0.0.0/0", "8.8.8.8", "1.1.1.1/32", "10.0.0.0/7", "203.0.113.0/24", "2001:db8::/32", "::1"} {
 		if _, err := ValidateTrustedRanges([]string{pub}); err == nil {
 			t.Errorf("expected public/IPv6 range %q to be rejected", pub)
+		}
+	}
+
+	// An IPv6 range is rejected for being IPv6, not for being public — the
+	// message has to say so or the user retries with a "more private" prefix.
+	for _, v6 := range []string{"2001:db8::/32", "fd00::/8", "::1"} {
+		_, err := ValidateTrustedRanges([]string{v6})
+		if err == nil {
+			t.Errorf("expected %q to be rejected", v6)
+			continue
+		}
+		if !strings.Contains(err.Error(), "IPv6") {
+			t.Errorf("%q: message should name IPv6, got %v", v6, err)
 		}
 	}
 

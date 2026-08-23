@@ -73,9 +73,52 @@ func TestClassifyOutput(t *testing.T) {
 	if err := classifyOutput(nil, []byte("no server running on /tmp/x\n"), errors.New("exit 1")); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("want ErrNoSession, got %v", err)
 	}
+	if err := classifyOutput(nil, []byte("error connecting to /tmp/x (No such file or directory)\n"), errors.New("exit 1")); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("want ErrNoSession, got %v", err)
+	}
 	if err := classifyOutput([]byte("0 1 zsh\n"), nil, nil); err != nil {
 		t.Fatalf("want nil, got %v", err)
 	}
+	// stdout is data, not diagnostics: window names are user-chosen and come
+	// back verbatim from list-windows -F. A window named after one of tmux's
+	// own complaints must not be mistaken for that complaint.
+	if err := classifyOutput([]byte("0 1 no server running\n"), nil, nil); err != nil {
+		t.Fatalf("a window name must not classify as an error, got %v", err)
+	}
+	if err := classifyOutput([]byte("0 1 can't find session\n"), nil, nil); err != nil {
+		t.Fatalf("a window name must not classify as an error, got %v", err)
+	}
+}
+
+// A successful list whose payload happens to quote tmux's own error text must
+// survive intact, all the way through the Client.
+func TestListWindowsKeepsWindowsNamedAfterTmuxErrors(t *testing.T) {
+	c := Client{R: classifyingRunner{out: "0 1 no server running\n1 0 zsh\n"}}
+	got, err := c.ListWindows(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want both windows", got)
+	}
+	if got[0].Name != "no server running" {
+		t.Errorf("name mangled: %+v", got[0])
+	}
+}
+
+// classifyingRunner mirrors LocalRunner's exact pipeline: hand the command's
+// streams and exit status to classifyOutput, then return whatever it says.
+type classifyingRunner struct {
+	out    string
+	errOut string
+	exit   error
+}
+
+func (r classifyingRunner) Run(_ context.Context, _ []string) ([]byte, error) {
+	if err := classifyOutput([]byte(r.out), []byte(r.errOut), r.exit); err != nil {
+		return nil, err
+	}
+	return []byte(r.out), nil
 }
 
 // fakeRunner records argv and replays canned output.

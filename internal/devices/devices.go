@@ -215,8 +215,10 @@ func (s *Store) Redeem(token, name string, now time.Time) (secret string, dev De
 		}
 	}
 	if idx < 0 {
-		// Still prune, so a burst of failed attempts cannot keep dead tokens
-		// around, but do not persist just for that.
+		// Deliberately no write on this path: a failed redemption must not
+		// touch devices.json, or an unauthenticated caller could drive disk
+		// writes by replaying junk tokens. Expired entries are pruned by the
+		// next Mint, which is the only thing that adds them.
 		return "", Device{}, ErrBadToken
 	}
 

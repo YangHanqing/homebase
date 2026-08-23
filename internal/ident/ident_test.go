@@ -28,6 +28,15 @@ func TestValidateName(t *testing.T) {
 	if err := ValidateName(";"); err == nil {
 		t.Fatal("bare semicolon should fail")
 	}
+	// tmux would read these as flags, not as a name.
+	for _, s := range []string{"-F", "-", "  -x  "} {
+		if err := ValidateName(s); err == nil {
+			t.Fatalf("name starting with a dash should fail: %q", s)
+		}
+	}
+	if err := ValidateName("re-attach"); err != nil {
+		t.Fatalf("a dash inside the name is fine: %v", err)
+	}
 	long := make([]rune, 65)
 	for i := range long {
 		long[i] = 'a'

@@ -269,6 +269,12 @@ func ValidateTrustedRanges(ranges []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: %q: %v", ErrTrustedRange, r, err)
 		}
+		// Say why, rather than letting an IPv6 entry fall through to "not a
+		// private network" — the range may well be private; Homebase simply
+		// does not bind IPv6.
+		if n.IP.To4() == nil {
+			return nil, fmt.Errorf("%w: %q is IPv6, and Homebase binds IPv4 only", ErrTrustedRange, r)
+		}
 		if !CIDRIsNonPublic(n) {
 			return nil, fmt.Errorf("%w: %q is not a private network", ErrTrustedRange, r)
 		}
@@ -370,16 +376,25 @@ func (s *Store) persistLocked() error {
 }
 
 // AtomicWrite writes data to path via a same-directory temp file, fsync, rename.
+//
+// The temp file gets a unique name, which matters because two Homebase
+// processes write these files: the server and the `homebase pair` CLI. A
+// fixed "<path>.tmp" let one process reopen the other's half-written scratch
+// file with O_TRUNC and then rename the result into place — and a devices.json
+// mangled that way is a startup error, which revokes every paired device at
+// once. Distinct names make the worst case a lost update instead: whichever
+// rename lands second wins whole, so the file is always some writer's complete
+// document.
 func AtomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return err
 	}
-	tmp := filepath.Join(dir, filepath.Base(path)+".tmp")
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
 	ok := false
 	defer func() {
 		if !ok {
@@ -404,5 +419,11 @@ func AtomicWrite(path string, data []byte) error {
 		return err
 	}
 	ok = true
+	// fsync the directory so the rename itself survives a crash. Without it
+	// the data is durable but the name may still point at the old inode.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 	return nil
 }

@@ -12,8 +12,16 @@ import (
 	"time"
 )
 
-// privateSocketDir returns a short TMUX_TMPDIR. t.TempDir() embeds the test
-// name and easily blows past the ~104-byte sun_path limit for tmux's socket.
+// privateSocketDir points tmux at a throwaway server and returns its
+// TMUX_TMPDIR. The directory is short because t.TempDir() embeds the test name
+// and easily blows past the ~104-byte sun_path limit for tmux's socket.
+//
+// Clearing TMUX is the load-bearing half. tmux prefers the socket named in
+// $TMUX over TMUX_TMPDIR, and the obvious way to work on this project is from
+// inside the homebase session itself — so without this every live test either
+// skipped with "duplicate session: homebase" or, on a machine with no session
+// yet, ran the whole control-channel suite (rename, kill, scroll) against the
+// operator's real tmux server and then cleaned up a different socket.
 func privateSocketDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "hb")
@@ -21,6 +29,13 @@ func privateSocketDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("TMUX_TMPDIR", dir)
+	// t.Setenv registers the restore; Unsetenv makes it actually absent,
+	// which is what tmux checks.
+	for _, k := range []string{"TMUX", "TMUX_PANE"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
 	return dir
 }
 
@@ -45,7 +60,6 @@ func liveClient(t *testing.T) Client {
 		t.Skip("tmux not installed")
 	}
 	dir := privateSocketDir(t)
-	t.Setenv("TMUX_TMPDIR", dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName).CombinedOutput(); err != nil {
@@ -126,7 +140,6 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 	}
 
 	dir := privateSocketDir(t)
-	t.Setenv("TMUX_TMPDIR", dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", SessionName, "-c", "/tmp").CombinedOutput(); err != nil {
@@ -172,7 +185,6 @@ func TestLiveAttachTurnsStatusBarOff(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	dir := privateSocketDir(t)
-	t.Setenv("TMUX_TMPDIR", dir)
 	killPrivateServer(t, bin, dir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -209,7 +221,6 @@ func TestLiveListSurvivesEmptyLocale(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	dir := privateSocketDir(t)
-	t.Setenv("TMUX_TMPDIR", dir)
 	for _, k := range []string{"LANG", "LC_ALL", "LC_CTYPE"} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -326,4 +337,49 @@ func fillHistory(t *testing.T, c Client) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Skip("pane never produced scrollback; shell too slow to start")
+}
+
+// The list must survive a window named after one of tmux's own complaints.
+// Window names are user-chosen and `list-windows -F` prints them straight
+// back, so a classifier that reads stdout turns a healthy session into
+// "no session": every window disappears from the sidebar, and KillWindow then
+// refuses each delete as "last window" because the list it checks is empty.
+func TestLiveWindowNamedAfterATmuxErrorDoesNotEmptyTheList(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+
+	idx, err := c.NewWindow(ctx, "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"no server running", "can't find session", "no such session"} {
+		if err := c.RenameWindow(ctx, idx, name); err != nil {
+			t.Fatalf("rename to %q: %v", name, err)
+		}
+		got, err := c.ListWindows(ctx)
+		if err != nil {
+			t.Fatalf("%q: %v", name, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("%q ate the window list: %+v", name, got)
+		}
+		if find(got, idx).Name != name {
+			t.Fatalf("%q: name mangled: %+v", name, got)
+		}
+		// The count feeds the same "someone else is attached" warning, and
+		// took the same path through the classifier.
+		if n, err := c.ClientCount(ctx); err != nil {
+			t.Fatalf("%q: client count: %v", name, err)
+		} else if n != 0 {
+			t.Fatalf("%q: detached server should report 0 clients, got %d", name, n)
+		}
+		// Deleting must stay possible: with an empty list this returned
+		// ErrLastWindow instead.
+		if err := c.KillWindow(ctx, idx); err != nil {
+			t.Fatalf("%q: kill refused: %v", name, err)
+		}
+		if idx, err = c.NewWindow(ctx, "home"); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
