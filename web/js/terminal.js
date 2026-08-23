@@ -232,3 +232,129 @@ function homebaseFitSize(fit, term) {
     rows: term.rows || 24
   };
 }
+
+// Whether the program in the foreground has asked for mouse reports. A TUI
+// that has -- Claude Code (DECSET 1000 + 1006), vim, htop, less -- draws its
+// own scrollback and expects the wheel; tmux's copy-mode history is not what
+// a scroll should move there, and on the alternate screen there is barely any
+// history to move anyway. xterm parsed those DECSETs out of the PTY stream,
+// so `modes` answers for whatever is in the foreground right now. With tmux's
+// own `mouse` off (what Homebase runs with) tmux forwards the pane's mouse
+// mode to the client, so this tracks the program, not tmux.
+function homebaseMouseReporting(term) {
+  const modes = term.modes;
+  return !!(modes && modes.mouseTrackingMode && modes.mouseTrackingMode !== "none");
+}
+
+// Turn `lines` of travel (positive = back into history) into wheel reports for
+// the program, and let xterm encode them: which protocol and which extension
+// were negotiated is its business, not ours.
+//
+// Two details are load-bearing. One report per line, because
+// triggerMouseEvent sends exactly one report per event no matter how large
+// the delta -- a drag is a run of notches, the way a trackpad produces them.
+// And deltaMode LINE, because the pixel path divides by the row height and
+// carries a remainder, which would drop notches.
+function homebaseSendWheel(term, lines, x, y) {
+  const target = term.element && term.element.querySelector(".xterm-screen");
+  if (!target || !lines) {
+    return false;
+  }
+  const step = lines > 0 ? -1 : 1; // wheel up (negative deltaY) reveals history
+  const n = Math.min(Math.abs(lines), 40); // a flick must not become a burst
+  for (let i = 0; i < n; i++) {
+    target.dispatchEvent(new WheelEvent("wheel", {
+      deltaY: step,
+      deltaMode: 1, // WheelEvent.DOM_DELTA_LINE
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+      cancelable: true
+    }));
+  }
+  return true;
+}
+
+// Recover from an IME that leaves xterm composing forever.
+//
+// xterm tracks composition from DOM events alone: `compositionstart` sets a
+// flag, `compositionend` clears it. While the flag is set, keydown with
+// keyCode 229 is swallowed -- and on a phone keyboard *every* key reports 229.
+// So one missing `compositionend`, which is what switching the iOS keyboard
+// from Chinese to English produces, and nothing can be typed again for the
+// life of the page. Nothing in xterm's public API can clear that flag.
+//
+// The rule this guard applies needs no knowledge of which key or which IME:
+// text reached the textarea, no composition is in progress, and nothing
+// reached the PTY -- then xterm is stuck. Clear the textarea, hand xterm the
+// `compositionend` it never got (it reads the now-empty textarea and sends
+// nothing, so this cannot double up), and send what was typed ourselves.
+const HOMEBASE_IME_STUCK_MS = 80; // xterm's own send paths are sync or setTimeout(0)
+// Generous on purpose. Too short and a slow typist on an IME that misreports
+// isComposing gets their raw pinyin sent; too long only costs a stuck user one
+// more keystroke, since every keystroke re-arms the check.
+const HOMEBASE_IME_LIVE_MS = 1500;
+const HOMEBASE_IME_MAX_REPLAY = 16; // a keystroke or a committed word, not a backlog
+
+function homebaseGuardIME(term, send) {
+  const ta = term.textarea;
+  if (!ta) {
+    return;
+  }
+  // xterm only clears the textarea on blur, Enter and ^C, so its value is a
+  // running log. `accounted` is how much of it has already reached the PTY.
+  let accounted = "";
+  let lastComposition = 0;
+  let dataCount = 0;
+  let selfDispatch = false;
+
+  term.onData(function () {
+    dataCount++;
+    accounted = ta.value;
+  });
+  // Deliberately not a boolean: a flag set by compositionstart and cleared by
+  // compositionend would go stale on exactly the missing event this guard
+  // exists to survive. A timestamp cannot -- a composition in progress emits
+  // an event per keystroke, so silence for long enough means there is none,
+  // whatever xterm still believes.
+  ["compositionstart", "compositionupdate", "compositionend"].forEach(function (name) {
+    ta.addEventListener(name, function () {
+      if (!selfDispatch) { // the guard's own compositionend is not evidence of one
+        lastComposition = Date.now();
+      }
+    });
+  });
+
+  ta.addEventListener("input", function (ev) {
+    // Mid-composition silence is correct: the pinyin is not input yet.
+    if (ev.isComposing) {
+      return;
+    }
+    const mark = dataCount;
+    setTimeout(function () {
+      if (dataCount !== mark) {
+        return; // xterm handled it after all
+      }
+      if (Date.now() - lastComposition < HOMEBASE_IME_LIVE_MS) {
+        return; // a live composition, including one whose events trail the input
+      }
+      const value = ta.value;
+      let pending = "";
+      if (value.length > accounted.length && value.indexOf(accounted) === 0) {
+        pending = value.slice(accounted.length);
+      } else if (accounted.indexOf(value) === 0 && accounted.length === value.length + 1) {
+        pending = "\x7f"; // a swallowed Backspace
+      }
+      // Enter reaches the textarea as a line break, but a PTY wants CR.
+      pending = pending.replace(/\n/g, "\r");
+      ta.value = "";
+      accounted = "";
+      selfDispatch = true;
+      ta.dispatchEvent(new Event("compositionend"));
+      selfDispatch = false;
+      if (pending && pending.length <= HOMEBASE_IME_MAX_REPLAY) {
+        send(pending);
+      }
+    }, HOMEBASE_IME_STUCK_MS);
+  });
+}

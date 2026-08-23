@@ -504,12 +504,57 @@
     return null;
   }
 
-  term.onData(function (data) {
+  // Keys typed into copy mode are eaten as copy-mode commands, so a scroll has
+  // to be cancelled before the first keystroke lands. A tap does that on the
+  // phone; a wheel user just starts typing. The cancel travels on the control
+  // channel and the input on the WebSocket with nothing ordering the two, so
+  // the input waits for the cancel to return -- and whatever is typed behind
+  // it queues on the same promise, or a fast burst would arrive out of order.
+  let pendingInput = null;
+
+  function afterCopyMode(fn) {
+    if (inCopyMode) {
+      pendingInput = leaveCopyMode();
+    }
+    if (!pendingInput) {
+      fn();
+      return;
+    }
+    const chain = pendingInput.then(fn);
+    pendingInput = chain;
+    chain.then(function () {
+      if (pendingInput === chain) {
+        pendingInput = null; // drained: back to sending straight through
+      }
+    });
+  }
+
+  // A tap has nothing to send, but it still cancels copy mode -- and the queue
+  // has to know, or the Tab a double-tap sends would overtake the cancel.
+  function queueLeaveCopyMode() {
+    afterCopyMode(function () {});
+  }
+
+  function sendInput(data) {
     if (!session) {
       return;
     }
-    if (!armed.ctrl && !armed.alt) {
-      session.sendInput(data);
+    afterCopyMode(function () {
+      if (session) {
+        session.sendInput(data);
+      }
+    });
+  }
+
+  function typed(data) {
+    if (!session) {
+      return;
+    }
+    // Mouse reports come through onData too (that is how a wheel notch
+    // reaches the program). They are not something the user typed, so a
+    // sticky modifier must neither be applied to them nor spent on them.
+    if ((!armed.ctrl && !armed.alt) || data.slice(0, 3) === "\x1b[<" || data.slice(0, 3) === "\x1b[M") {
+      sendInput(data);
       return;
     }
     let out = data;
@@ -523,8 +568,15 @@
       out = "\x1b" + out; // Meta as ESC prefix, what readline and TUIs expect
     }
     disarm();
-    session.sendInput(out);
-  });
+    sendInput(out);
+  }
+
+  term.onData(typed);
+
+  // A phone keyboard can leave xterm composing forever; the guard notices and
+  // replays what was swallowed. Through `typed`, so a replayed keystroke gets
+  // the same sticky modifier and copy-mode treatment as a live one.
+  homebaseGuardIME(term, typed);
 
   // Sequences for keys an on-screen keyboard has no way to send. Home/End
   // use the normal-mode forms; the rest are the standard xterm codes.
@@ -568,11 +620,7 @@
         const seq = text !== null ? text : keySeq(btn.getAttribute("data-key"));
         if (seq && session) {
           disarm();
-          leaveCopyMode().then(function () {
-            if (session) {
-              session.sendInput(seq);
-            }
-          });
+          sendInput(seq);
         }
         term.focus();
       });
@@ -693,7 +741,7 @@
     const lines = Math.trunc((touch.clientY - gesture.lastY) / cell);
     if (lines) {
       gesture.lastY += lines * cell;
-      queueScroll(lines);
+      scrollBy(lines, touch.clientX, touch.clientY);
     }
   }, { capture: true, passive: false });
 
@@ -704,8 +752,9 @@
       return; // a scroll or a selection, not a tap
     }
     // A tap is what you do before typing, so it is also the moment to come
-    // back from wherever the scrollback wandered.
-    leaveCopyMode();
+    // back from wherever the scrollback wandered. Through the queue, so the
+    // double-tap Tab below cannot overtake the cancel it depends on.
+    queueLeaveCopyMode();
     if (!window.homebasePrefs.get("doubleTapTab")) {
       return;
     }
@@ -722,7 +771,7 @@
       ev.preventDefault();
       if (session) {
         disarm();
-        session.sendInput("\t");
+        sendInput("\t");
       }
       return;
     }
@@ -732,6 +781,51 @@
   }, { capture: true, passive: false });
 
   // ---- scrollback ---------------------------------------------------------
+
+  // Where a scroll goes depends on who is in the foreground. A program that
+  // asked for mouse reports (Claude Code, vim, htop, less) keeps its own
+  // scrollback and expects wheel notches -- sending it to tmux copy-mode
+  // instead moves the wrong thing, and on the alternate screen usually moves
+  // nothing at all. Everything else means the shell, whose history is tmux's.
+  function scrollBy(lines, x, y) {
+    if (homebaseMouseReporting(term)) {
+      homebaseSendWheel(term, lines, x, y);
+      return;
+    }
+    queueScroll(lines);
+  }
+
+  // A mouse wheel has the same problem a swipe does: there is no browser
+  // scrollback to move (see homebaseSendWheel). When the program wants mouse
+  // reports the event is xterm's to encode, so leave it alone; otherwise take
+  // it, because xterm's fallback for a buffer with no scrollback is to send
+  // one arrow key per line -- which walks the shell's history instead of
+  // scrolling. Sub-line deltas from a trackpad accumulate rather than round
+  // away to nothing.
+  let wheelCarry = 0;
+
+  termWrap.addEventListener("wheel", function (ev) {
+    if (homebaseMouseReporting(term)) {
+      return;
+    }
+    ev.stopPropagation();
+    ev.preventDefault();
+    if (ev.shiftKey) {
+      return; // xterm reads shift+wheel as "do not scroll"; so do we
+    }
+    let delta = ev.deltaY;
+    if (ev.deltaMode === 2) {
+      delta *= term.rows; // by the page
+    } else if (ev.deltaMode !== 1) {
+      delta /= homebaseCellHeight(term) || 1; // by the pixel
+    }
+    wheelCarry -= delta; // wheel down goes forward, which is negative lines
+    const lines = Math.trunc(wheelCarry);
+    if (lines) {
+      wheelCarry -= lines;
+      queueScroll(lines);
+    }
+  }, { capture: true, passive: false });
 
   // tmux owns the history, so a swipe is a REST call, not a local scroll. At
   // most one is in flight; whatever the finger covers meanwhile is summed and
