@@ -383,3 +383,66 @@ func TestLiveWindowNamedAfterATmuxErrorDoesNotEmptyTheList(t *testing.T) {
 		}
 	}
 }
+
+// The sidebar's activity dot rests on one tmux fact that is worth pinning
+// against a real server: #{window_activity} advances for a window nobody is
+// looking at, with monitor-activity left alone.
+//
+// The tempting alternative — #{window_activity_flag} plus "set-option -t
+// homebase monitor-activity on" — does not work. monitor-activity is a
+// *window* option, so a session target sets it on that session's current
+// window only and later windows never inherit it; the session-wide form
+// would leak into the user's other sessions on the same tmux server. This
+// test asserts the option is still off precisely so a future "fix" that
+// turns it on has to explain itself.
+func TestLiveBackgroundWindowActivityAdvances(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+
+	// Window 0 stops being the current one as soon as this lands, so what
+	// follows is measured on a window with no viewer at all.
+	if _, err := c.NewWindow(ctx, "home"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := c.R.Run(ctx, []string{"show-options", "-w", "-t", SessionName + ":0", "monitor-activity"}); err != nil {
+		t.Fatal(err)
+	} else if got := strings.TrimSpace(string(out)); got == "monitor-activity on" {
+		t.Fatal("monitor-activity must stay untouched; the activity timestamp does not need it")
+	}
+
+	before := find(mustList(t, c, ctx), 0)
+	if before.Activity == 0 {
+		t.Fatal("a live window should carry an activity timestamp")
+	}
+	if before.Active {
+		t.Fatal("window 0 should be in the background for this test")
+	}
+
+	// Unix-second granularity: without the wait the new output can land in
+	// the same second and the timestamp legitimately does not move.
+	time.Sleep(1100 * time.Millisecond)
+	if _, err := c.R.Run(ctx, []string{"send-keys", "-t", SessionName + ":0", "echo homebase-activity", "Enter"}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		after := find(mustList(t, c, ctx), 0)
+		if after.Activity > before.Activity {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background window activity never advanced: %d -> %d", before.Activity, after.Activity)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func mustList(t *testing.T, c Client, ctx context.Context) []Window {
+	t.Helper()
+	got, err := c.ListWindows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}

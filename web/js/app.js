@@ -182,6 +182,48 @@
 
   // ---- tmux windows -------------------------------------------------------
 
+  // Thresholds for the activity dot, in seconds since a window last produced
+  // output. The list polls every POLL_MS (3s), so anything under a couple of
+  // poll intervals is indistinguishable from "right now".
+  //
+  // BUSY_S is 20s because that is comfortably longer than the gaps a working
+  // agent leaves: a model thinking between tool calls, a compile step, a test
+  // run printing nothing for a moment. Shorter and the dot strobes on and off
+  // while the window is plainly still working.
+  //
+  // RECENT_S is 3 minutes: long enough that a window which finished while the
+  // phone was in a pocket still says so when it comes out, short enough that
+  // the shell you last typed in an hour ago does not claim to be busy.
+  const BUSY_S = 20;
+  const RECENT_S = 180;
+
+  // serverNow is the clock reading the server sent with the last window list.
+  // Window.activity is on the server's clock too, so the age is the
+  // difference between two readings of the same clock — never Date.now(),
+  // which on a phone that has been asleep can be minutes out and would make
+  // every window look either frantic or dead.
+  let serverNow = 0;
+
+  // activityState never removes the dot from the layout, only recolors it:
+  // the timestamp ticks every poll, and a badge appearing and disappearing
+  // would shove the window name sideways three times a minute.
+  function activityState(w) {
+    if (w.bell) {
+      return "bell";
+    }
+    if (!w.activity || !serverNow) {
+      return "quiet";
+    }
+    const age = serverNow - w.activity;
+    if (age <= BUSY_S) {
+      return "busy";
+    }
+    if (age <= RECENT_S) {
+      return "recent";
+    }
+    return "quiet";
+  }
+
   function renderWindows() {
     listEl.innerHTML = "";
     const onlyOne = windows.length <= 1;
@@ -190,12 +232,25 @@
 
       const main = el("button", "plate-main");
       main.type = "button";
+      const state = activityState(w);
+      const stateLabel = t("window.act." + state);
+      const dotEl = el("span", "plate-dot is-" + state);
+      dotEl.setAttribute("aria-hidden", "true");
+      dotEl.title = stateLabel;
       const nameEl = el("div", "plate-name");
       nameEl.textContent = w.name;
       const idxEl = el("div", "plate-index");
       idxEl.textContent = w.index;
+      main.appendChild(dotEl);
       main.appendChild(idxEl);
       main.appendChild(nameEl);
+      // The dot is decorative, so the state has to reach a screen reader
+      // through the button's own name.
+      main.setAttribute("aria-label", t("window.selectAria", {
+        index: w.index,
+        name: w.name,
+        state: stateLabel
+      }));
       main.addEventListener("click", function () {
         selectWindow(w.index);
       });
@@ -258,6 +313,7 @@
     inFlight = true;
     return api(windowsPath()).then(function (body) {
       windows = (body && body.windows) || [];
+      serverNow = (body && body.now) || 0;
       showListMsg(windows.length ? "" : t("list.empty"));
       renderWindows();
       renderClients(body && body.clients);

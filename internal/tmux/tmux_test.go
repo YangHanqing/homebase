@@ -45,13 +45,33 @@ func TestNewWindowArgsWithDirInsertsDashC(t *testing.T) {
 	}
 }
 
+// The order of the fields in listFormat is a contract with parseWindows:
+// every machine-readable field first, the free-form name last, single spaces
+// between. A name may contain spaces, so anything appended after it would be
+// swallowed by the name.
+func TestListFormatKeepsTheNameLast(t *testing.T) {
+	want := "#{window_index} #{window_active} #{window_activity} #{window_bell_flag} #{window_name}"
+	if listFormat != want {
+		t.Fatalf("listFormat = %q, want %q", listFormat, want)
+	}
+	if strings.ContainsAny(listFormat, "\t\r\n") {
+		t.Fatal("listFormat must not use a control character as a separator")
+	}
+	if !strings.HasSuffix(listFormat, "#{window_name}") {
+		t.Fatal("the free-form window name must be the last field")
+	}
+	if got := strings.Join(ListArgs(), " "); got != "list-windows -t homebase -F "+listFormat {
+		t.Fatalf("unexpected list-windows argv: %q", got)
+	}
+}
+
 func TestParseWindows(t *testing.T) {
-	out := []byte("0 0 zsh\n1 1 my work\n2 0 vim\n")
+	out := []byte("0 0 1787485588 0 zsh\n1 1 1787485591 0 my work\n2 0 1787480000 1 vim\n")
 	got := parseWindows(out)
 	want := []Window{
-		{Index: 0, Name: "zsh", Active: false},
-		{Index: 1, Name: "my work", Active: true},
-		{Index: 2, Name: "vim", Active: false},
+		{Index: 0, Name: "zsh", Active: false, Activity: 1787485588},
+		{Index: 1, Name: "my work", Active: true, Activity: 1787485591},
+		{Index: 2, Name: "vim", Active: false, Activity: 1787480000, Bell: true},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %+v", got)
@@ -63,6 +83,26 @@ func TestParseWindows(t *testing.T) {
 	}
 	if w := parseWindows(nil); len(w) != 0 || w == nil {
 		t.Fatalf("empty output should give an empty non-nil slice, got %#v", w)
+	}
+}
+
+// A short or garbled line must not take a window off the list any more than
+// it already did: a truncated row is dropped, but a row whose only problem is
+// an unreadable timestamp keeps the window and loses only the signal.
+func TestParseWindowsIsDefensive(t *testing.T) {
+	out := []byte("0 0 1787485588 0 zsh\n1 1 vim\n\nbad 0 1 0 x\n3 0 nope 0 a name with spaces\n")
+	got := parseWindows(out)
+	want := []Window{
+		{Index: 0, Name: "zsh", Activity: 1787485588},
+		{Index: 3, Name: "a name with spaces", Activity: 0},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d: got %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 
@@ -93,7 +133,7 @@ func TestClassifyOutput(t *testing.T) {
 // A successful list whose payload happens to quote tmux's own error text must
 // survive intact, all the way through the Client.
 func TestListWindowsKeepsWindowsNamedAfterTmuxErrors(t *testing.T) {
-	c := Client{R: classifyingRunner{out: "0 1 no server running\n1 0 zsh\n"}}
+	c := Client{R: classifyingRunner{out: "0 1 1787485588 0 no server running\n1 0 1787485500 0 zsh\n"}}
 	got, err := c.ListWindows(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -149,7 +189,7 @@ func TestListWindowsTreatsMissingSessionAsEmpty(t *testing.T) {
 }
 
 func TestKillWindowRefusesTheLastOne(t *testing.T) {
-	f := &fakeRunner{out: map[string]string{"list-windows": "0 1 zsh\n"}}
+	f := &fakeRunner{out: map[string]string{"list-windows": "0 1 1787485588 0 zsh\n"}}
 	c := Client{R: f}
 	if err := c.KillWindow(context.Background(), 0); !errors.Is(err, ErrLastWindow) {
 		t.Fatalf("want ErrLastWindow, got %v", err)
@@ -160,7 +200,7 @@ func TestKillWindowRefusesTheLastOne(t *testing.T) {
 		}
 	}
 
-	f2 := &fakeRunner{out: map[string]string{"list-windows": "0 1 zsh\n1 0 vim\n"}}
+	f2 := &fakeRunner{out: map[string]string{"list-windows": "0 1 1787485588 0 zsh\n1 0 1787485500 0 vim\n"}}
 	if err := (Client{R: f2}).KillWindow(context.Background(), 1); err != nil {
 		t.Fatalf("killing a non-last window: %v", err)
 	}

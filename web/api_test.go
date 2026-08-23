@@ -101,3 +101,32 @@ func dictKeys(t *testing.T, s, lang string) map[string]bool {
 	}
 	return out
 }
+
+// The activity dot is an age, and an age needs two readings of the *same*
+// clock. #{window_activity} comes off the server's clock, so the server sends
+// its own "now" with the list and the browser subtracts one from the other. A
+// phone that has been asleep, or any machine without NTP, can be minutes out;
+// deriving the age from Date.now() would paint every window either frantic or
+// dead, and would do it silently.
+func TestActivityAgeUsesTheServerClock(t *testing.T) {
+	s := readWeb(t, "js/app.js")
+	start := strings.Index(s, "function activityState(w)")
+	if start < 0 {
+		t.Fatal("activityState() not found in app.js")
+	}
+	end := strings.Index(s[start:], "\n  }\n")
+	if end < 0 {
+		t.Fatal("could not find the end of activityState()")
+	}
+	body := s[start : start+end]
+
+	if strings.Contains(body, "Date.now()") || strings.Contains(body, "new Date") {
+		t.Error("the activity age must not come from the browser's clock")
+	}
+	if !strings.Contains(body, "serverNow - w.activity") {
+		t.Error("the age should be the server's now minus the window's activity")
+	}
+	if !strings.Contains(s, "body.now") {
+		t.Error("refreshWindows must read the server's clock out of the response")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yanghanqing/homebase/internal/tmux"
 )
@@ -40,7 +41,7 @@ func fakeServer(t *testing.T, r *fakeRunner) http.Handler {
 }
 
 func TestListWindows(t *testing.T) {
-	r := &fakeRunner{list: "0 1 shell\n1 0 logs\n"}
+	r := &fakeRunner{list: "0 1 1787485591 0 shell\n1 0 1787485588 1 logs\n"}
 	rec := do(t, fakeServer(t, r), http.MethodGet, "/api/windows", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
@@ -56,6 +57,40 @@ func TestListWindows(t *testing.T) {
 	}
 	if body.Windows[1].Index != 1 || body.Windows[1].Active {
 		t.Fatalf("second window %+v", body.Windows[1])
+	}
+}
+
+// The sidebar's activity dot lives or dies on this shape: each window's
+// activity timestamp is on the server's clock, so the response has to carry
+// the server's own "now" for the browser to subtract it from. Comparing
+// against Date.now() instead would make a phone with a drifting clock show
+// every window as either frantic or dead.
+func TestListWindowsReportsActivityAgainstTheServerClock(t *testing.T) {
+	r := &fakeRunner{list: "0 1 1787485591 0 shell\n1 0 1787485588 1 logs\n"}
+	before := time.Now().Unix()
+	rec := do(t, fakeServer(t, r), http.MethodGet, "/api/windows", nil)
+	after := time.Now().Unix()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	raw := rec.Body.String()
+	body := decode[struct {
+		Windows []tmux.Window `json:"windows"`
+		Clients int           `json:"clients"`
+		Now     int64         `json:"now"`
+	}](t, rec)
+	if body.Now < before || body.Now > after {
+		t.Fatalf("now = %d, want it inside [%d,%d]", body.Now, before, after)
+	}
+	if body.Windows[0].Activity != 1787485591 || body.Windows[0].Bell {
+		t.Fatalf("first window %+v", body.Windows[0])
+	}
+	if body.Windows[1].Activity != 1787485588 || !body.Windows[1].Bell {
+		t.Fatalf("second window %+v", body.Windows[1])
+	}
+	if !strings.Contains(raw, `"activity"`) ||
+		!strings.Contains(raw, `"bell"`) {
+		t.Fatalf("response is missing the activity fields: %s", raw)
 	}
 }
 
@@ -122,7 +157,7 @@ func TestWindowIndexMustBeValid(t *testing.T) {
 }
 
 func TestKillWindow(t *testing.T) {
-	r := &fakeRunner{list: "0 1 shell\n1 0 logs\n"}
+	r := &fakeRunner{list: "0 1 1787485591 0 shell\n1 0 1787485588 1 logs\n"}
 	rec := do(t, fakeServer(t, r), http.MethodDelete, "/api/windows/1", nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
@@ -130,7 +165,7 @@ func TestKillWindow(t *testing.T) {
 }
 
 func TestKillLastWindowIsRefused(t *testing.T) {
-	r := &fakeRunner{list: "0 1 shell\n"}
+	r := &fakeRunner{list: "0 1 1787485591 0 shell\n"}
 	rec := do(t, fakeServer(t, r), http.MethodDelete, "/api/windows/0", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())

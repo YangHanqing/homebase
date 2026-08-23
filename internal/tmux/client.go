@@ -15,10 +15,20 @@ import (
 var ErrLastWindow = errors.New("refusing to kill the last window")
 
 // Window is one tmux window inside the homebase session.
+//
+// Activity is tmux's own #{window_activity}: the unix time of the last output
+// in that window, on the *server's* clock. It is reported raw rather than as
+// an age, because a browser's clock is its own; the REST layer sends the
+// server's "now" beside the list so the frontend can subtract two readings of
+// the same clock. It also updates for background windows, which is the whole
+// point — that is how the sidebar can tell which window an agent is working
+// in without attaching to it.
 type Window struct {
-	Index  int    `json:"index"`
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
+	Index    int    `json:"index"`
+	Name     string `json:"name"`
+	Active   bool   `json:"active"`
+	Activity int64  `json:"activity"`
+	Bell     bool   `json:"bell"`
 }
 
 // Runner executes one short-lived tmux command and returns its stdout.
@@ -85,19 +95,30 @@ func parseWindows(out []byte) []Window {
 		if line == "" {
 			continue
 		}
-		// index, active, then the name, which may itself contain spaces.
-		parts := strings.SplitN(line, " ", 3)
-		if len(parts) < 3 {
+		// index, active, activity, bell, then the name, which may itself
+		// contain spaces — so it has to be the last field and the split has
+		// to stop counting at it.
+		parts := strings.SplitN(line, " ", 5)
+		if len(parts) < 5 {
 			continue
 		}
 		idx, err := strconv.Atoi(parts[0])
 		if err != nil {
 			continue
 		}
+		// An unparseable timestamp is a missing signal, not a missing
+		// window: fall back to zero, which the frontend reads as "quiet",
+		// rather than dropping a window the user can still click.
+		activity, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			activity = 0
+		}
 		windows = append(windows, Window{
-			Index:  idx,
-			Active: parts[1] == "1",
-			Name:   parts[2],
+			Index:    idx,
+			Active:   parts[1] == "1",
+			Activity: activity,
+			Bell:     parts[3] == "1",
+			Name:     parts[4],
 		})
 	}
 	return windows

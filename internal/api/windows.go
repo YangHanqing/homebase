@@ -40,7 +40,18 @@ func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			clients = 0
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"windows": windows, "clients": clients})
+		// "now" is this machine's clock, read at the same moment as the
+		// activity timestamps beside it. The browser's clock may be minutes
+		// off — a phone that has been asleep, a machine with no NTP — so the
+		// frontend must never subtract a window's activity from Date.now().
+		// Sending both readings of the *server's* clock makes the age
+		// skew-free without inventing a clock-sync protocol, and keeps
+		// Window a faithful mirror of what tmux reported.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"windows": windows,
+			"clients": clients,
+			"now":     time.Now().Unix(),
+		})
 	case http.MethodPost:
 		var body struct {
 			Dir string `json:"dir"`

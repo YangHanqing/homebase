@@ -305,7 +305,7 @@ button, input { touch-action: manipulation; }
 
 .plate-main {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto auto 1fr;
   gap: 10px;
   align-items: baseline;
   padding: 10px 4px 10px 8px;
@@ -317,6 +317,36 @@ button, input { touch-action: manipulation; }
   color: inherit;
   font: inherit;
 }
+/* The window's recent-activity signal. It keeps its box in every state --
+   only the fill changes -- so the name beside it never moves as the
+   timestamp ages across a poll. */
+.plate-dot {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+.plate-dot.is-busy {
+  background: var(--led-ok);
+  border-color: var(--led-ok);
+}
+.plate-dot.is-recent {
+  background: var(--muted);
+  border-color: var(--muted);
+  opacity: 0.55;
+}
+.plate-dot.is-bell {
+  background: var(--led-err);
+  border-color: var(--led-err);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plate-dot.is-busy { animation: breathe 1.8s ease-in-out infinite; }
+}
+
 .plate-index {
   font-family: var(--mono);
   font-size: 11px;

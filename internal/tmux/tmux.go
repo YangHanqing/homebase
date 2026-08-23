@@ -25,11 +25,22 @@ var (
 	ErrNoSession = errors.New("tmux session does not exist")
 )
 
-// listFormat puts the two machine fields first and the free-form window name
+// listFormat puts the machine fields first and the free-form window name
 // last, separated by single spaces. Do not use a tab: tmux renders control
 // characters in -F output as "_" when the process has no UTF-8 locale (as
 // under launchd), which silently turned the whole list into garbage.
-const listFormat = "#{window_index} #{window_active} #{window_name}"
+//
+// window_activity is a unix timestamp of the window's last pane output, and
+// window_bell_flag says the program in it rang. Both need zero configuration:
+// activity is bookkeeping tmux does whether or not monitor-activity is set,
+// and monitor-bell is on by default. That matters, because the obvious
+// alternative — window_activity_flag plus "set-option -t homebase
+// monitor-activity on" — does not work: monitor-activity is a *window*
+// option, so targeting a session sets it on that session's current window
+// only and windows created later never inherit it. The session-wide form
+// ("set-option -g -w") would leak into the user's other tmux sessions on the
+// same server, and Homebase must not reach outside its own session.
+const listFormat = "#{window_index} #{window_active} #{window_activity} #{window_bell_flag} #{window_name}"
 
 // AttachArgs is the PTY channel command: attach to the session (creating it
 // if needed) and turn off the status bar for that session only. dir sets the
