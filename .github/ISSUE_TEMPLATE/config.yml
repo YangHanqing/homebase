@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/yanghanqing/homebase/security/advisories/new
+    about: >-
+      Homebase hands a browser a shell. Please report auth, bind-address, or
+      pairing flaws privately — never in a public issue.
+  - name: Is this feature out of scope?
+    url: https://github.com/yanghanqing/homebase/blob/main/CONTRIBUTING.md#before-you-open-a-pull-request
+    about: >-
+      Multi-host, ssh, built-in TLS, accounts, and a frontend framework are
+      out of scope by design. Read this before filing a request for one.
+  - name: Setup help
+    url: https://github.com/yanghanqing/homebase/blob/main/README.md#connecting-from-your-phone-or-another-computer
+    about: >-
+      New to tmux or Tailscale? The README walks through both, plus pairing
+      and the access tiers.

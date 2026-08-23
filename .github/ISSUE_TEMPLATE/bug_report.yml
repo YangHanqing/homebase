@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in Homebase does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **Not for security bugs.** A flaw in the auth gate, the bind-address
+        policy, or the pairing flow is a remote code execution bug — report it
+        privately via
+        [Security → Report a vulnerability](https://github.com/yanghanqing/homebase/security/advisories/new).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. homebase start
+        2. Open http://127.0.0.1:1990 in ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `homebase status`
+      description: >-
+        Paste it as-is. It carries the version, bind address, tmux path, and
+        pairing state — the four things most bugs turn out to depend on.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Host OS and version
+      placeholder: macOS 15.5 (Apple silicon) / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: tmux
+    attributes:
+      label: tmux version
+      description: Output of `tmux -V`.
+      placeholder: tmux 3.5a
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Browser and device
+      description: Only if the bug is in the web UI.
+      placeholder: Safari on iOS 18 / Chrome 140 on macOS
+
+  - type: dropdown
+    id: access
+    attributes:
+      label: Access tier
+      options:
+        - private (loopback + trusted range)
+        - lan (all local networks)
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >-
+        From the service log, or from `homebase serve -log-level debug` in a
+        terminal. **Scrub it first** — never paste a pairing link, a cookie, or
+        terminal contents.
+      render: text

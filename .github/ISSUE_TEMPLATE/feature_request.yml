@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest a change to what Homebase does
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Homebase is deliberately small. Multi-host and ssh, built-in TLS,
+        accounts and passwords, Electron, a frontend framework, more than one
+        tmux session, and a split-pane UI of our own are **out of scope by
+        design** — see [CONTRIBUTING.md](https://github.com/yanghanqing/homebase/blob/main/CONTRIBUTING.md). You can
+        still make the case for one, but say why the design decision should
+        change rather than treating it as an oversight.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What are you trying to do that Homebase makes hard or impossible today?
+        Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: >-
+        tmux can already do a lot of this — splits, scrollback, layouts. Say
+        what does not work.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: >-
+            I have read the out-of-scope list and this either is not on it, or
+            I have explained above why the decision should change.
+          required: true

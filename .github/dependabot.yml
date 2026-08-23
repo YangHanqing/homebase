@@ -1,0 +1,20 @@
+# Homebase pins a tiny dependency set on purpose, and govulncheck is a CI job —
+# so the point of these updates is to keep that scan meaningful, not to chase
+# versions. Review each one; a new transitive module is a design question.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Bump"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Bump"
