@@ -52,7 +52,7 @@ jobs:
           echo "HOMEBASE_SIGN_API_KEY_JSON=$RUNNER_TEMP/api-key.json" >> "$GITHUB_ENV"
           echo "HOMEBASE_SIGN_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
