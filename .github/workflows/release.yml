@@ -19,12 +19,21 @@ jobs:
         with:
           go-version: "1.26"
 
+      # This job stages the Apple signing certificate and the App Store Connect
+      # API key, so an unverified download here would be handed the keys to
+      # sign anything as us. Pin the archive by digest; bump both together.
       - name: Install rcodesign
+        env:
+          RCODESIGN_VERSION: "0.29.0"
+          RCODESIGN_SHA256: "dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002"
         run: |
+          set -euo pipefail
+          archive="apple-codesign-${RCODESIGN_VERSION}-x86_64-unknown-linux-musl"
           curl -fsSL -o /tmp/rcodesign.tar.gz \
-            https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz
+            "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${RCODESIGN_VERSION}/${archive}.tar.gz"
+          echo "${RCODESIGN_SHA256}  /tmp/rcodesign.tar.gz" | sha256sum -c -
           tar xzf /tmp/rcodesign.tar.gz -C /tmp
-          sudo mv /tmp/apple-codesign-0.29.0-x86_64-unknown-linux-musl/rcodesign /usr/local/bin/
+          sudo mv "/tmp/${archive}/rcodesign" /usr/local/bin/
           rcodesign --version
 
       - name: Stage Apple signing credentials
