@@ -62,6 +62,28 @@
     } catch (e) { /* private mode: collapse state lasts this page only */ }
   }
 
+  // Remembers which window was showing in the terminal, so a page reload
+  // lands back on it instead of always defaulting to Ungrouped. Read once at
+  // boot (restoreLastFocus); written every time refreshWindows learns which
+  // window is actually attached-and-current, which covers a click, a new
+  // window, and tmux's own window becoming current for any other reason,
+  // without every call site having to remember to save it.
+  const LAST_FOCUS_KEY = "homebase.lastFocus";
+  function loadLastFocus() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LAST_FOCUS_KEY));
+      if (raw && typeof raw.project === "string" && Number.isInteger(raw.index)) {
+        return raw;
+      }
+    } catch (e) { /* private mode, or nothing saved yet */ }
+    return null;
+  }
+  function saveLastFocus(project, index) {
+    try {
+      localStorage.setItem(LAST_FOCUS_KEY, JSON.stringify({ project: project || "", index: index }));
+    } catch (e) { /* private mode: this page only, nothing to restore next time */ }
+  }
+
   const mobileMq = window.matchMedia("(max-width: 720px), (max-height: 500px)");
 
   const HELP = {
@@ -500,6 +522,10 @@
       });
     })).then(function () {
       renderSidebar();
+      const active = activeWindow();
+      if (active) {
+        saveLastFocus(currentProject, active.index);
+      }
     }).finally(function () {
       inFlight = false;
     });
@@ -545,7 +571,20 @@
   }
 
   function killWindow(project, index) {
-    act(api(windowsPath(project, "/" + index), { method: "DELETE" }));
+    // A project session has no "last window" guard (AGENT.md hard constraint
+    // 3): closing this one may end the whole session on purpose. If that
+    // session is the one attached, the normal WS reconnect (Model A's
+    // backoff loop) would otherwise recreate it seconds later via
+    // "new-session -A", silently undoing the close the user just asked for.
+    const s = sections[project];
+    const killingLast = !!s && s.windows.length <= 1;
+    const req = api(windowsPath(project, "/" + index), { method: "DELETE" });
+    act(req);
+    if (killingLast && project === currentProject && project !== "") {
+      req.then(function () {
+        connect("");
+      }).catch(function () {});
+    }
   }
 
   // ---- projects -------------------------------------------------------------
@@ -1243,9 +1282,48 @@
 
   // ---- boot ---------------------------------------------------------------
 
+  // Best-effort restore of whatever window was showing last time: reattach
+  // its project, and if the window itself still exists, make it current
+  // again. Either check can fail (the project was deleted, the window was
+  // closed) and both are fine to just skip -- whatever the session's own
+  // current window already is stays current, per the ask ("except when it's
+  // already been closed").
+  function restoreLastFocus(saved) {
+    if (!saved) {
+      return;
+    }
+    const projectExists = saved.project === "" || projects.some(function (p) { return p.id === saved.project; });
+    if (!projectExists) {
+      if (currentProject !== "") {
+        connect("");
+      }
+      return;
+    }
+    if (saved.project !== currentProject) {
+      // The optimistic boot-time connect (below) targeted this same project
+      // already in the common case; this only runs if that guess differed.
+      connect(saved.project);
+    }
+    const s = sections[saved.project];
+    if (!s || !s.windows.some(function (w) { return w.index === saved.index; })) {
+      return; // closed since last time -- nothing to restore
+    }
+    if (!s.windows.some(function (w) { return w.index === saved.index && w.active; })) {
+      selectWindow(saved.project, saved.index);
+    }
+  }
+
+  const savedFocus = loadLastFocus();
+
   renderStatus({ state: "connecting", code: "", message: "" });
-  connect("");
-  refreshAll();
+  // Connect immediately to the best guess (page load must not wait on a
+  // round-trip before showing a shell); refreshAll's result is what lets
+  // restoreLastFocus tell whether that guess, and the saved window inside
+  // it, are still valid.
+  connect(savedFocus ? savedFocus.project : "");
+  refreshAll().then(function () {
+    restoreLastFocus(savedFocus);
+  });
   startPolling();
   term.focus();
 })();
