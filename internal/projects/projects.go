@@ -3,9 +3,12 @@
 // tmux still owns all session/window state — this file only remembers which
 // folders the user asked Homebase to track, so a project with no open
 // windows is not forgotten. A project's tmux session (tmux.ProjectSession)
-// is independent of this list: closing a project's last window lets tmux
-// tear the session down as usual, and the next window simply recreates it.
-// Removing a project from this list does not touch tmux either way. See
+// is independent of this list while the project exists: closing a project's
+// last window lets tmux tear the session down as usual, and the next window
+// simply recreates it. Removing the project itself (Remove) is different —
+// that is explicit user intent to end the project altogether, so the API
+// layer also kills its tmux session when the entry is removed (see
+// internal/api's handleProject); this package itself stays tmux-unaware. See
 // AGENT.md "Projects".
 package projects
 
@@ -150,9 +153,9 @@ func (s *Store) Add(path string) (Project, error) {
 	return fromPath(clean), nil
 }
 
-// Remove drops a project by id. It does not touch tmux — see the package
-// doc — so a session that is still running under that path is simply no
-// longer listed, exactly like any other untracked "homebase-*" session.
+// Remove drops a project by id. This package stays tmux-unaware — see the
+// package doc — so the caller (internal/api's handleProject) is responsible
+// for also ending the project's tmux session; this only removes the entry.
 func (s *Store) Remove(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -146,10 +146,6 @@ button, input { touch-action: manipulation; }
 .chrome-actions { display: none; }
 
 .listhead {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto auto;
-  gap: 8px;
-  align-items: center;
   padding: 12px 16px 8px;
 }
 .listhead-label {
@@ -158,22 +154,6 @@ button, input { touch-action: manipulation; }
   text-transform: uppercase;
   color: var(--muted);
 }
-.listhead .led { margin-top: 0; }
-.listhead-state {
-  color: var(--muted);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.listhead-clients {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.listhead-clients.is-crowded { color: var(--led-err); }
-.listhead-clients[hidden] { display: none; }
 
 .list-msg {
   color: var(--muted);
@@ -263,6 +243,27 @@ button, input { touch-action: manipulation; }
   padding: 0 4px;
 }
 .btn-tiny:hover { color: var(--ink); }
+
+/* New project / Settings: both infrequent, so they sit below the list
+   rather than competing with it at the top for attention. */
+.sidebar-footer {
+  display: flex;
+  border-top: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.btn-footer {
+  flex: 1;
+  text-align: center;
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn-footer:hover { color: var(--ink); background: var(--hover); }
+.btn-footer:first-child { border-right: 1px solid var(--line); }
 .nav-toggle:focus-visible,
 .btn-add:focus-visible,
 .btn-solid:focus-visible,
@@ -282,20 +283,23 @@ button, input { touch-action: manipulation; }
 .empty p { margin: 0 0 8px; }
 
 .proj-list {
+  flex: 1 1 auto;
   overflow: auto;
   padding: 4px 0;
   min-height: 0;
 }
 
 .proj-head {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 6px;
+  display: flex;
   align-items: center;
+  gap: 6px;
   padding: 8px 12px;
   cursor: pointer;
 }
-.proj-head:hover { background: var(--hover); }
+/* No hover background here -- unlike a window row, a project header is not
+   a thing you select, only expand/collapse, and painting it like a
+   selectable row read as a fake "highlighted project" state. The collapse
+   arrow already carries the affordance. */
 .proj-collapse {
   width: 1em;
   text-align: center;
@@ -303,26 +307,51 @@ button, input { touch-action: manipulation; }
   font-size: 11px;
 }
 .proj-name {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.proj-count {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
+.proj-attached {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
+.proj-attached .led { margin-top: 0; }
+.proj-attached-clients {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.proj-attached-clients.is-crowded { color: var(--led-err); }
 .proj-actions { display: flex; align-items: center; gap: 2px; }
+/* The "+" (new window) stays prominent -- it's the frequent action -- while
+   delete rides the same hover-reveal treatment as a window's own actions. */
+.proj-add {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.proj-add:hover { border-color: var(--accent); color: var(--accent); }
 
 .list {
   list-style: none;
   margin: 0;
-  padding: 0 8px 8px;
+  padding: 0 0 8px;
   overflow: visible;
 }
-.proj-section .list-msg { padding: 0 20px 10px; }
+.proj-section .list-msg { padding: 0 12px 10px; }
 
 .plate {
   display: grid;
@@ -337,6 +366,24 @@ button, input { touch-action: manipulation; }
 .plate.is-active {
   background: var(--hover);
   border-left-color: var(--accent);
+}
+
+/* Rename/kill (on a window row) and delete (on a project header) are
+   low-frequency next to select/expand, so a mouse-and-hover device only
+   shows them on hover or keyboard focus. Touch has no hover state, so a
+   coarse pointer keeps them visible always -- the same reasoning behind
+   this codebase's other touch-sized, always-on controls (the key toolbar). */
+@media (hover: hover) and (pointer: fine) {
+  .hover-reveal {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .plate:hover .hover-reveal,
+  .plate:focus-within .hover-reveal,
+  .proj-head:hover .hover-reveal,
+  .proj-head:focus-within .hover-reveal {
+    opacity: 1;
+  }
 }
 
 .plate-main {

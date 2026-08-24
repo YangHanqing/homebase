@@ -282,6 +282,30 @@ func TestNewWindowFallsBackToHomeWhenCurrentPathFails(t *testing.T) {
 	}
 }
 
+func TestKillSessionArgs(t *testing.T) {
+	if got := strings.Join(KillSessionArgs("homebase-abc123"), " "); got != "kill-session -t homebase-abc123" {
+		t.Fatalf("unexpected kill-session argv: %q", got)
+	}
+}
+
+// KillSession is only ever called for project deletion (explicit user
+// intent), and a session that is already gone must not be an error -- the
+// project entry is removed either way.
+func TestKillSessionTreatsMissingSessionAsSuccess(t *testing.T) {
+	f := &fakeRunner{err: map[string]error{"kill-session": ErrNoSession}}
+	if err := (Client{R: f, Session: "homebase-gone"}).KillSession(context.Background()); err != nil {
+		t.Fatalf("want nil, got %v", err)
+	}
+}
+
+func TestKillSessionPropagatesOtherErrors(t *testing.T) {
+	boom := errors.New("boom")
+	f := &fakeRunner{err: map[string]error{"kill-session": boom}}
+	if err := (Client{R: f, Session: "homebase-abc"}).KillSession(context.Background()); !errors.Is(err, boom) {
+		t.Fatalf("want boom, got %v", err)
+	}
+}
+
 func contains(ss []string, want string) bool {
 	for _, s := range ss {
 		if s == want {

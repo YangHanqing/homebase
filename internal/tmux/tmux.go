@@ -131,6 +131,16 @@ func KillWindowArgs(session string, index int) []string {
 	return []string{"kill-window", "-t", target(session, index)}
 }
 
+// KillSessionArgs destroys a whole session, not just one window. This is the
+// one place Homebase ever issues "kill-session", and only for a project's
+// own session when the project itself is removed (DELETE
+// /api/projects/{id}): that is explicit user intent to end it, unlike
+// closing a window, which must never take a session down by accident (hard
+// constraint 3). Never call this for the legacy singleton session.
+func KillSessionArgs(session string) []string {
+	return []string{"kill-session", "-t", session}
+}
+
 // maxScrollLines bounds one scroll request. tmux clamps at the ends of its
 // own history by itself; this only stops a buggy or hostile client from
 // making us build an absurd repeat count.

@@ -27,6 +27,53 @@ func projServer(t *testing.T, r *fakeRunner, ps *projects.Store) http.Handler {
 	})
 }
 
+// Deleting a project is explicit intent to end it, so it must also kill that
+// project's tmux session (never any other session) -- not just drop the
+// projects.json entry.
+func TestProjectDeleteKillsItsSession(t *testing.T) {
+	ps := testProjects(t)
+	dir := t.TempDir()
+	h := projServer(t, &fakeRunner{}, ps)
+	rec := do(t, h, http.MethodPost, "/api/projects", map[string]string{"path": dir})
+	p := decode[projects.Project](t, rec)
+
+	r := &fakeRunner{}
+	h2 := projServer(t, r, ps)
+	rec = do(t, h2, http.MethodDelete, "/api/projects/"+p.ID, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var sawKill bool
+	for _, args := range r.got {
+		if args[0] == "kill-session" {
+			sawKill = true
+			if want := tmux.ProjectSession(p.ID); args[2] != want {
+				t.Fatalf("kill-session target = %q, want %q", args[2], want)
+			}
+		}
+	}
+	if !sawKill {
+		t.Fatalf("expected kill-session, got %v", r.got)
+	}
+}
+
+// A session that is already gone must not turn a completed deletion into an
+// error response -- the projects.json entry is removed either way.
+func TestProjectDeleteSucceedsWhenSessionAlreadyGone(t *testing.T) {
+	ps := testProjects(t)
+	dir := t.TempDir()
+	h := projServer(t, &fakeRunner{}, ps)
+	rec := do(t, h, http.MethodPost, "/api/projects", map[string]string{"path": dir})
+	p := decode[projects.Project](t, rec)
+
+	r := &fakeRunner{err: tmux.ErrNoSession}
+	h2 := projServer(t, r, ps)
+	rec = do(t, h2, http.MethodDelete, "/api/projects/"+p.ID, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectAddListRemove(t *testing.T) {
 	ps := testProjects(t)
 	h := projServer(t, &fakeRunner{}, ps)

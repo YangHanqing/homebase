@@ -259,6 +259,19 @@ func (c Client) KillWindow(ctx context.Context, index int) error {
 	return err
 }
 
+// KillSession destroys this client's entire tmux session, not just one
+// window. It exists solely for project deletion: removing a project is
+// explicit intent to also end its session, so the API handler for DELETE
+// /api/projects/{id} calls this after removing the project from
+// projects.json. A session that is already gone is not an error.
+func (c Client) KillSession(ctx context.Context) error {
+	_, err := c.R.Run(ctx, KillSessionArgs(c.session()))
+	if errors.Is(err, ErrNoSession) {
+		return nil
+	}
+	return err
+}
+
 // Scroll moves the active pane's view through tmux's history and reports
 // whether the pane is still in copy mode afterwards.
 //

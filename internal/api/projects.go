@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/yanghanqing/homebase/internal/ident"
 	"github.com/yanghanqing/homebase/internal/projects"
+	"github.com/yanghanqing/homebase/internal/tmux"
 )
 
 // handleProjects lists or creates tracked projects. A project is just a
@@ -39,8 +41,13 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleProject removes one tracked project. It never touches tmux — see
-// internal/projects's package doc.
+// handleProject removes one tracked project. Deleting a project is explicit
+// user intent to also end its tmux session — unlike closing a window, which
+// must never take a session down by accident (AGENT.md hard constraint 3) —
+// so this also issues kill-session for it. That is best-effort: the project
+// is already untracked by the time it runs, and a session that never
+// existed, or fails to die for some other reason, must not turn a completed
+// deletion into an error response.
 func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := ident.ValidateProjectID(id); err != nil {
@@ -56,6 +63,13 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), controlTimeout)
+		defer cancel()
+		client := s.tmuxClient()
+		client.Session = tmux.ProjectSession(id)
+		if err := client.KillSession(ctx); err != nil && s.Log != nil {
+			s.Log.Info("kill project session failed", "project", id, "err", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:

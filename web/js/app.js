@@ -10,9 +10,6 @@
   const scrim = document.getElementById("scrim");
   const chromeHost = document.getElementById("chrome-host");
   const chromeLed = document.getElementById("chrome-led");
-  const sideLed = document.getElementById("side-led");
-  const sideState = document.getElementById("side-state");
-  const sideClients = document.getElementById("side-clients");
   const copyToast = document.getElementById("copy-toast");
 
   const renameModal = document.getElementById("rename-modal");
@@ -154,13 +151,12 @@
 
   function renderStatus(st) {
     lastStatus = st || lastStatus;
-    const cls = "led " + (st.state || "");
-    sideLed.className = cls;
-    chromeLed.className = cls;
-    // The led dot already carries "connected" (green); the word next to it
-    // is only useful for the states where color alone isn't enough context.
-    sideState.textContent = st.state === "connected" ? "" : (t(LABEL[st.state]) || st.state || "");
-    sideState.title = st.state === "disconnected" ? t("status.disconnectedHint") : "";
+    chromeLed.className = "led " + (st.state || "");
+    // The sidebar's own status dot lives on whichever project is attached
+    // (renderSection), not here -- it needs a re-render of that row, not a
+    // style update, and it is already a no-op when nothing has been fetched
+    // yet (renderSection tolerates a missing section).
+    renderSidebar();
 
     const bad = st.state === "error" ||
       (st.state === "disconnected" && st.code && st.code !== "ws_closed");
@@ -284,7 +280,26 @@
       renderSection(p.id, p.name, p);
     });
     syncChrome();
-    renderClients((sections[currentProject] || {}).clients);
+  }
+
+  // The connection led + client count belong to whichever project is
+  // attached -- there is exactly one terminal/WebSocket for the whole page,
+  // so showing this on every project read as each of them having its own
+  // status. Only the attached section's header carries it.
+  function attachedIndicator() {
+    const wrap = el("span", "proj-attached");
+    const dot = el("span", "led " + (lastStatus.state || ""));
+    dot.setAttribute("aria-hidden", "true");
+    dot.title = lastStatus.state === "connected" ? "" : (t(LABEL[lastStatus.state]) || lastStatus.state || "");
+    wrap.appendChild(dot);
+    const count = (sections[currentProject] || {}).clients;
+    if (count) {
+      const c = el("span", "proj-attached-clients" + (count > 1 ? " is-crowded" : ""));
+      c.textContent = t("sidebar.clients", { count: count });
+      c.title = t("sidebar.clientsHint", { count: count });
+      wrap.appendChild(c);
+    }
+    return wrap;
   }
 
   function renderSection(id, label, project) {
@@ -301,11 +316,12 @@
     if (project) {
       nameEl.title = project.path;
     }
-    const countEl = el("span", "proj-count");
-    countEl.textContent = s.windows.length ? String(s.windows.length) : "";
 
     const actions = el("div", "proj-actions");
-    const addBtn = el("button", "btn-tiny");
+    // The "+" (new window) stays a normal-weight, always-visible button --
+    // it is the one frequent action here. Delete rides the same
+    // hover/focus-reveal treatment as a window's own rename/kill.
+    const addBtn = el("button", "proj-add");
     addBtn.type = "button";
     addBtn.textContent = "+";
     addBtn.title = t("sidebar.new");
@@ -316,7 +332,7 @@
     });
     actions.appendChild(addBtn);
     if (project) {
-      const delBtn = el("button", "btn-tiny");
+      const delBtn = el("button", "btn-tiny hover-reveal");
       delBtn.type = "button";
       delBtn.textContent = "\u{1F5D1}︎";
       delBtn.title = t("project.delete");
@@ -330,7 +346,9 @@
 
     head.appendChild(arrow);
     head.appendChild(nameEl);
-    head.appendChild(countEl);
+    if (id === currentProject) {
+      head.appendChild(attachedIndicator());
+    }
     head.appendChild(actions);
     head.setAttribute("role", "button");
     head.setAttribute("aria-expanded", collapsedNow ? "false" : "true");
@@ -368,7 +386,13 @@
   }
 
   function renderWindowRow(project, w, onlyOne) {
-    const li = el("li", "plate" + (w.active ? " is-active" : ""));
+    // tmux tracks a "current window" per session independently, so every
+    // project's own section has one. Highlighting all of them read as
+    // several windows being "active" at once; only the window actually
+    // showing in the one terminal -- the attached project's current window
+    // -- should look selected.
+    const attached = project === currentProject && w.active;
+    const li = el("li", "plate" + (attached ? " is-active" : ""));
 
     const main = el("button", "plate-main");
     main.type = "button";
@@ -395,7 +419,7 @@
       selectWindow(project, w.index);
     });
 
-    const actions = el("div", "plate-actions");
+    const actions = el("div", "plate-actions hover-reveal");
     const renameBtn = el("button", "btn-tiny");
     renameBtn.type = "button";
     renameBtn.textContent = "✎";
@@ -424,22 +448,6 @@
   function showListMsg(text) {
     listMsg.textContent = text || "";
     listMsg.hidden = !text;
-  }
-
-  // Anyone attached to the tmux session — another Homebase tab, or a plain
-  // `tmux attach` over ssh — can shrink this view via tmux's smallest-client
-  // resize behavior, so surface the raw count rather than just "connected".
-  // Only the attached project's client count is meaningful here: it is the
-  // one session the terminal is actually showing.
-  function renderClients(count) {
-    if (!count) {
-      sideClients.hidden = true;
-      return;
-    }
-    sideClients.hidden = false;
-    sideClients.textContent = t("sidebar.clients", { count: count });
-    sideClients.title = t("sidebar.clientsHint", { count: count });
-    sideClients.classList.toggle("is-crowded", count > 1);
   }
 
   function windowsPath(project, suffix) {
