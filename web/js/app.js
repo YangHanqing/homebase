@@ -1,6 +1,6 @@
 (function () {
   const appEl = document.getElementById("app");
-  const listEl = document.getElementById("window-list");
+  const projListEl = document.getElementById("proj-list");
   const listMsg = document.getElementById("list-msg");
   const termWrap = document.getElementById("term-wrap");
   const paneStatus = document.getElementById("pane-status");
@@ -27,11 +27,43 @@
   const term = created.term;
   const fit = created.fit;
 
-  let windows = [];
+  // One project is "attached": the single terminal/WebSocket follows it, and
+  // "" means the legacy singleton session (the ungrouped bucket). Every
+  // other tracked project still lists its windows via the control channel —
+  // that part needs no attached PTY — but only the attached one is what the
+  // terminal actually shows.
+  let currentProject = "";
+  let projects = [];               // [{id, name, path}]
+  let sections = {};                // project id (or "") -> {windows, clients}
   let session = null;
   let pollTimer = null;
   let inFlight = false;
   let lastStatus = { state: "connecting" };
+
+  const COLLAPSE_KEY = "homebase.collapsedProjects";
+  function loadCollapsed() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY));
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  let collapsed = loadCollapsed();
+  function isCollapsed(id) {
+    return collapsed.indexOf(id) >= 0;
+  }
+  function toggleCollapsed(id) {
+    const i = collapsed.indexOf(id);
+    if (i >= 0) {
+      collapsed.splice(i, 1);
+    } else {
+      collapsed.push(id);
+    }
+    try {
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
+    } catch (e) { /* private mode: collapse state lasts this page only */ }
+  }
 
   const mobileMq = window.matchMedia("(max-width: 720px), (max-height: 500px)");
 
@@ -149,9 +181,13 @@
   }
 
   function activeWindow() {
-    for (let i = 0; i < windows.length; i++) {
-      if (windows[i].active) {
-        return windows[i];
+    const s = sections[currentProject];
+    if (!s) {
+      return null;
+    }
+    for (let i = 0; i < s.windows.length; i++) {
+      if (s.windows[i].active) {
+        return s.windows[i];
       }
     }
     return null;
@@ -159,7 +195,12 @@
 
   // ---- the single session -------------------------------------------------
 
-  function connect() {
+  // Switches which tmux session the one terminal/WebSocket is attached to.
+  // A click on a window already in the attached project is not a project
+  // switch at all, so callers that just want "make sure we're looking at
+  // this project" should go through ensureConnected instead.
+  function connect(project) {
+    currentProject = project || "";
     if (session) {
       session.dispose();
       session = null;
@@ -167,17 +208,25 @@
     term.reset();
     session = new HomebaseSession({
       term: term,
+      project: currentProject,
       onStatus: function (st) {
         renderStatus(st);
         if (st.state === "connected") {
           // The session may have just been created by this very connect.
-          refreshWindows();
+          refreshAll();
         }
       }
     });
     const size = homebaseFitSize(fit, term);
     session.setSize(size.cols, size.rows);
     session.connect();
+  }
+
+  function ensureConnected(project) {
+    project = project || "";
+    if (project !== currentProject) {
+      connect(project);
+    }
   }
 
   // ---- tmux windows -------------------------------------------------------
@@ -224,63 +273,152 @@
     return "quiet";
   }
 
-  function renderWindows() {
-    listEl.innerHTML = "";
-    const onlyOne = windows.length <= 1;
-    windows.forEach(function (w) {
-      const li = el("li", "plate" + (w.active ? " is-active" : ""));
-
-      const main = el("button", "plate-main");
-      main.type = "button";
-      const state = activityState(w);
-      const stateLabel = t("window.act." + state);
-      const dotEl = el("span", "plate-dot is-" + state);
-      dotEl.setAttribute("aria-hidden", "true");
-      dotEl.title = stateLabel;
-      const nameEl = el("div", "plate-name");
-      nameEl.textContent = w.name;
-      const idxEl = el("div", "plate-index");
-      idxEl.textContent = w.index;
-      main.appendChild(dotEl);
-      main.appendChild(idxEl);
-      main.appendChild(nameEl);
-      // The dot is decorative, so the state has to reach a screen reader
-      // through the button's own name.
-      main.setAttribute("aria-label", t("window.selectAria", {
-        index: w.index,
-        name: w.name,
-        state: stateLabel
-      }));
-      main.addEventListener("click", function () {
-        selectWindow(w.index);
-      });
-
-      const actions = el("div", "plate-actions");
-      const renameBtn = el("button", "btn-tiny");
-      renameBtn.type = "button";
-      renameBtn.textContent = "✎";
-      renameBtn.title = t("window.rename");
-      renameBtn.setAttribute("aria-label", t("window.renameAria", { name: w.name }));
-      renameBtn.addEventListener("click", function () {
-        openRename(w);
-      });
-      const killBtn = el("button", "btn-tiny");
-      killBtn.type = "button";
-      killBtn.textContent = "×";
-      killBtn.title = onlyOne ? t("window.closeLastTitle") : t("window.closeTitle");
-      killBtn.setAttribute("aria-label", t("window.closeAria", { name: w.name }));
-      killBtn.disabled = onlyOne;
-      killBtn.addEventListener("click", function () {
-        killWindow(w.index);
-      });
-      actions.appendChild(renameBtn);
-      actions.appendChild(killBtn);
-
-      li.appendChild(main);
-      li.appendChild(actions);
-      listEl.appendChild(li);
+  // renderSidebar draws every section: the fixed ungrouped bucket (the
+  // legacy singleton session, kept for zero-migration compatibility) first,
+  // then one section per tracked project, in the order projects.json has
+  // them.
+  function renderSidebar() {
+    projListEl.innerHTML = "";
+    renderSection("", t("sidebar.ungrouped"), null);
+    projects.forEach(function (p) {
+      renderSection(p.id, p.name, p);
     });
     syncChrome();
+    renderClients((sections[currentProject] || {}).clients);
+  }
+
+  function renderSection(id, label, project) {
+    const s = sections[id] || { windows: [] };
+    const collapsedNow = isCollapsed(id);
+
+    const wrap = el("div", "proj-section");
+    const head = el("div", "proj-head");
+    const arrow = el("span", "proj-collapse");
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = collapsedNow ? "▸" : "▾";
+    const nameEl = el("div", "proj-name");
+    nameEl.textContent = label;
+    if (project) {
+      nameEl.title = project.path;
+    }
+    const countEl = el("span", "proj-count");
+    countEl.textContent = s.windows.length ? String(s.windows.length) : "";
+
+    const actions = el("div", "proj-actions");
+    const addBtn = el("button", "btn-tiny");
+    addBtn.type = "button";
+    addBtn.textContent = "+";
+    addBtn.title = t("sidebar.new");
+    addBtn.setAttribute("aria-label", t("project.newWindowAria", { name: label }));
+    addBtn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      newWindow(id);
+    });
+    actions.appendChild(addBtn);
+    if (project) {
+      const delBtn = el("button", "btn-tiny");
+      delBtn.type = "button";
+      delBtn.textContent = "\u{1F5D1}︎";
+      delBtn.title = t("project.delete");
+      delBtn.setAttribute("aria-label", t("project.deleteAria", { name: label }));
+      delBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        deleteProject(project);
+      });
+      actions.appendChild(delBtn);
+    }
+
+    head.appendChild(arrow);
+    head.appendChild(nameEl);
+    head.appendChild(countEl);
+    head.appendChild(actions);
+    head.setAttribute("role", "button");
+    head.setAttribute("aria-expanded", collapsedNow ? "false" : "true");
+    head.setAttribute("aria-label", collapsedNow ? t("sidebar.expand") : t("sidebar.collapse"));
+    head.addEventListener("click", function () {
+      toggleCollapsed(id);
+      renderSidebar();
+    });
+    wrap.appendChild(head);
+
+    if (!collapsedNow) {
+      if (s.err) {
+        const msg = el("p", "list-msg");
+        msg.textContent = s.err;
+        wrap.appendChild(msg);
+      } else if (!s.windows.length) {
+        const msg = el("p", "list-msg");
+        msg.textContent = t("list.empty");
+        wrap.appendChild(msg);
+      } else {
+        const ul = el("ul", "list");
+        // Only the ungrouped bucket keeps the legacy singleton session's
+        // "cannot kill the last window" rule (see AGENT.md hard constraint
+        // 3). A project's tmux session has no such guard: its existence
+        // lives in projects.json, not in keeping a window open, so closing
+        // its last window is allowed and simply ends that session.
+        const onlyOne = id === "" && s.windows.length <= 1;
+        s.windows.forEach(function (w) {
+          ul.appendChild(renderWindowRow(id, w, onlyOne));
+        });
+        wrap.appendChild(ul);
+      }
+    }
+    projListEl.appendChild(wrap);
+  }
+
+  function renderWindowRow(project, w, onlyOne) {
+    const li = el("li", "plate" + (w.active ? " is-active" : ""));
+
+    const main = el("button", "plate-main");
+    main.type = "button";
+    const state = activityState(w);
+    const stateLabel = t("window.act." + state);
+    const dotEl = el("span", "plate-dot is-" + state);
+    dotEl.setAttribute("aria-hidden", "true");
+    dotEl.title = stateLabel;
+    const nameEl = el("div", "plate-name");
+    nameEl.textContent = w.name;
+    const idxEl = el("div", "plate-index");
+    idxEl.textContent = w.index;
+    main.appendChild(dotEl);
+    main.appendChild(idxEl);
+    main.appendChild(nameEl);
+    // The dot is decorative, so the state has to reach a screen reader
+    // through the button's own name.
+    main.setAttribute("aria-label", t("window.selectAria", {
+      index: w.index,
+      name: w.name,
+      state: stateLabel
+    }));
+    main.addEventListener("click", function () {
+      selectWindow(project, w.index);
+    });
+
+    const actions = el("div", "plate-actions");
+    const renameBtn = el("button", "btn-tiny");
+    renameBtn.type = "button";
+    renameBtn.textContent = "✎";
+    renameBtn.title = t("window.rename");
+    renameBtn.setAttribute("aria-label", t("window.renameAria", { name: w.name }));
+    renameBtn.addEventListener("click", function () {
+      openRename(project, w);
+    });
+    const killBtn = el("button", "btn-tiny");
+    killBtn.type = "button";
+    killBtn.textContent = "×";
+    killBtn.title = onlyOne ? t("window.closeLastTitle") : t("window.closeTitle");
+    killBtn.setAttribute("aria-label", t("window.closeAria", { name: w.name }));
+    killBtn.disabled = onlyOne;
+    killBtn.addEventListener("click", function () {
+      killWindow(project, w.index);
+    });
+    actions.appendChild(renameBtn);
+    actions.appendChild(killBtn);
+
+    li.appendChild(main);
+    li.appendChild(actions);
+    return li;
   }
 
   function showListMsg(text) {
@@ -291,6 +429,8 @@
   // Anyone attached to the tmux session — another Homebase tab, or a plain
   // `tmux attach` over ssh — can shrink this view via tmux's smallest-client
   // resize behavior, so surface the raw count rather than just "connected".
+  // Only the attached project's client count is meaningful here: it is the
+  // one session the terminal is actually showing.
   function renderClients(count) {
     if (!count) {
       sideClients.hidden = true;
@@ -302,8 +442,28 @@
     sideClients.classList.toggle("is-crowded", count > 1);
   }
 
-  function windowsPath(suffix) {
-    return "/api/windows" + (suffix || "");
+  function windowsPath(project, suffix) {
+    let p = "/api/windows" + (suffix || "");
+    if (project) {
+      p += "?project=" + encodeURIComponent(project);
+    }
+    return p;
+  }
+
+  function scrollPath() {
+    return "/api/scroll" + (currentProject ? "?project=" + encodeURIComponent(currentProject) : "");
+  }
+
+  function sectionIds() {
+    return [""].concat(projects.map(function (p) { return p.id; }));
+  }
+
+  function refreshProjects() {
+    return api("/api/projects").then(function (body) {
+      projects = (body && body.projects) || [];
+    }).catch(function () {
+      // Keep whatever the sidebar already has; the next poll tries again.
+    });
   }
 
   function refreshWindows() {
@@ -311,17 +471,27 @@
       return Promise.resolve();
     }
     inFlight = true;
-    return api(windowsPath()).then(function (body) {
-      windows = (body && body.windows) || [];
-      serverNow = (body && body.now) || 0;
-      showListMsg(windows.length ? "" : t("list.empty"));
-      renderWindows();
-      renderClients(body && body.clients);
-    }).catch(function (err) {
-      showListMsg(err.message);
+    const ids = sectionIds();
+    return Promise.all(ids.map(function (id) {
+      return api(windowsPath(id)).then(function (body) {
+        // Sections are fetched back-to-back in one poll tick, so their "now"
+        // readings differ by at most the request latency; the sidebar only
+        // needs one to keep the activity age off the browser's own clock
+        // (see activityState below and AGENT.md's server-clock rule).
+        serverNow = (body && body.now) || serverNow;
+        sections[id] = { windows: (body && body.windows) || [], clients: (body && body.clients) || 0, err: null };
+      }).catch(function (err) {
+        sections[id] = { windows: (sections[id] && sections[id].windows) || [], clients: 0, err: err.message };
+      });
+    })).then(function () {
+      renderSidebar();
     }).finally(function () {
       inFlight = false;
     });
+  }
+
+  function refreshAll() {
+    return refreshProjects().then(refreshWindows);
   }
 
   function act(promise) {
@@ -332,37 +502,157 @@
     });
   }
 
-  function selectWindow(index) {
+  function selectWindow(project, index) {
     // Optimistic: tmux redraws through the PTY faster than we can re-list.
-    windows.forEach(function (w) { w.active = w.index === index; });
-    renderWindows();
+    const s = sections[project];
+    if (s) {
+      s.windows.forEach(function (w) { w.active = w.index === index; });
+      renderSidebar();
+    }
     if (isMobile()) {
       setNavOpen(false);
     }
-    act(api(windowsPath("/" + index), {
+    ensureConnected(project);
+    act(api(windowsPath(project, "/" + index), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: true })
     }));
   }
 
-  function newWindow() {
-    act(api(windowsPath(), {
+  function newWindow(project) {
+    ensureConnected(project);
+    act(api(windowsPath(project), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dir: homebasePref("newWindowDir", "same") })
     }));
   }
 
-  function killWindow(index) {
-    act(api(windowsPath("/" + index), { method: "DELETE" }));
+  function killWindow(project, index) {
+    act(api(windowsPath(project, "/" + index), { method: "DELETE" }));
   }
+
+  // ---- projects -------------------------------------------------------------
+
+  function deleteProject(p) {
+    if (!confirm(t("project.deleteConfirm", { name: p.name }))) {
+      return;
+    }
+    api("/api/projects/" + encodeURIComponent(p.id), { method: "DELETE" }).then(function () {
+      delete sections[p.id];
+      if (currentProject === p.id) {
+        connect("");
+      }
+      return refreshAll();
+    }).catch(function (err) {
+      showListMsg(err.message);
+    });
+  }
+
+  const projectModal = document.getElementById("project-modal");
+  const projectForm = document.getElementById("project-form");
+  const projectFormErr = document.getElementById("project-form-err");
+  const projectPathInput = document.getElementById("p-path");
+
+  document.getElementById("btn-project-add").addEventListener("click", function () {
+    projectForm.reset();
+    projectFormErr.hidden = true;
+    projectModal.hidden = false;
+    projectPathInput.focus();
+  });
+  document.getElementById("btn-project-cancel").addEventListener("click", function () {
+    projectModal.hidden = true;
+  });
+  projectModal.addEventListener("click", function (ev) {
+    if (ev.target === projectModal) {
+      projectModal.hidden = true;
+    }
+  });
+  projectForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    projectFormErr.hidden = true;
+    const path = projectPathInput.value.trim();
+    if (!path) {
+      projectFormErr.textContent = t("project.add.err.required");
+      projectFormErr.hidden = false;
+      return;
+    }
+    api("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path })
+    }).then(function () {
+      projectModal.hidden = true;
+      return refreshAll();
+    }).catch(function (err) {
+      projectFormErr.textContent = err.message;
+      projectFormErr.hidden = false;
+    });
+  });
+
+  // ---- directory picker -----------------------------------------------------
+
+  const browseModal = document.getElementById("browse-modal");
+  const browseList = document.getElementById("browse-list");
+  const browsePathEl = document.getElementById("browse-path");
+  const browseFormErr = document.getElementById("browse-form-err");
+  let browseCurrent = "";
+
+  function loadBrowse(path) {
+    browseFormErr.hidden = true;
+    const q = path ? "?path=" + encodeURIComponent(path) : "";
+    api("/api/browse" + q).then(function (body) {
+      browseCurrent = body.path;
+      browsePathEl.textContent = browseCurrent;
+      browseList.innerHTML = "";
+      if (body.parent) {
+        const up = el("li", "browse-item browse-up");
+        up.textContent = t("browse.up");
+        up.addEventListener("click", function () { loadBrowse(body.parent); });
+        browseList.appendChild(up);
+      }
+      const dirs = body.entries || [];
+      if (!dirs.length) {
+        const empty = el("li", "browse-empty");
+        empty.textContent = t("browse.empty");
+        browseList.appendChild(empty);
+      }
+      dirs.forEach(function (entry) {
+        const li = el("li", "browse-item");
+        li.textContent = entry.name;
+        li.addEventListener("click", function () { loadBrowse(entry.path); });
+        browseList.appendChild(li);
+      });
+    }).catch(function (err) {
+      browseFormErr.textContent = err.message;
+      browseFormErr.hidden = false;
+    });
+  }
+
+  document.getElementById("btn-project-browse").addEventListener("click", function () {
+    browseModal.hidden = false;
+    loadBrowse(projectPathInput.value.trim());
+  });
+  document.getElementById("btn-browse-cancel").addEventListener("click", function () {
+    browseModal.hidden = true;
+  });
+  document.getElementById("btn-browse-select").addEventListener("click", function () {
+    projectPathInput.value = browseCurrent;
+    browseModal.hidden = true;
+  });
+  browseModal.addEventListener("click", function (ev) {
+    if (ev.target === browseModal) {
+      browseModal.hidden = true;
+    }
+  });
 
   // ---- rename modal ---------------------------------------------------------
 
-  function openRename(w) {
+  function openRename(project, w) {
     renameForm.reset();
     renameFormErr.hidden = true;
+    document.getElementById("r-project").value = project || "";
     document.getElementById("r-index").value = w.index;
     document.getElementById("r-name").value = w.name;
     renameModal.hidden = false;
@@ -373,9 +663,10 @@
   renameForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
     renameFormErr.hidden = true;
+    const project = document.getElementById("r-project").value;
     const index = document.getElementById("r-index").value;
     const name = document.getElementById("r-name").value;
-    api(windowsPath("/" + encodeURIComponent(index)), {
+    api(windowsPath(project, "/" + encodeURIComponent(index)), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name })
@@ -405,7 +696,6 @@
     }, 1400);
   });
 
-  document.getElementById("btn-window-add").addEventListener("click", newWindow);
   document.getElementById("btn-rename-cancel").addEventListener("click", function () {
     renameModal.hidden = true;
   });
@@ -437,7 +727,7 @@
     }
   });
   document.addEventListener("homebase:lang-changed", function () {
-    renderWindows();
+    renderSidebar();
     renderStatus(lastStatus);
     renderThemeButtons();
   });
@@ -504,7 +794,7 @@
       if (document.visibilityState === "hidden") {
         return;
       }
-      refreshWindows();
+      refreshAll();
     }, POLL_MS);
   }
 
@@ -524,7 +814,7 @@
     if (session) {
       session.wake();
     }
-    refreshWindows();
+    refreshAll();
   });
 
   // ---- terminal input -----------------------------------------------------
@@ -903,7 +1193,7 @@
     const lines = pendingLines;
     pendingLines = 0;
     scrollInFlight = true;
-    api("/api/scroll", {
+    api(scrollPath(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lines: lines })
@@ -929,7 +1219,7 @@
     }
     inCopyMode = false;
     pendingLines = 0;
-    return api("/api/scroll", {
+    return api(scrollPath(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lines: 0 })
@@ -939,8 +1229,8 @@
   // ---- boot ---------------------------------------------------------------
 
   renderStatus({ state: "connecting", code: "", message: "" });
-  connect();
-  refreshWindows();
+  connect("");
+  refreshAll();
   startPolling();
   term.focus();
 })();

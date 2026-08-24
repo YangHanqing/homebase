@@ -12,6 +12,9 @@ import (
 const (
 	maxNameLen   = 64
 	maxWindowIdx = 9999
+	// projectIDLen matches internal/projects.ID's output: 12 hex characters
+	// of a path's SHA-256.
+	projectIDLen = 12
 )
 
 // ValidateName checks a tmux window name: trimmed 1–64 runes, no control
@@ -50,6 +53,21 @@ func ValidateName(s string) error {
 func ValidateWindowIndex(i int) error {
 	if i < 0 || i > maxWindowIdx {
 		return fmt.Errorf("window index out of range")
+	}
+	return nil
+}
+
+// ValidateProjectID checks a project id as it arrives from the network: it
+// becomes "homebase-<id>", a tmux session name, so anything outside
+// lowercase hex could smuggle a ":" or "." into a tmux target string.
+func ValidateProjectID(s string) error {
+	if len(s) != projectIDLen {
+		return fmt.Errorf("invalid project id")
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return fmt.Errorf("invalid project id")
+		}
 	}
 	return nil
 }

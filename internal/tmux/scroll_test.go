@@ -19,7 +19,7 @@ func TestScrollArgs(t *testing.T) {
 		{100000, "send-keys -t homebase -X -N 500 scroll-up"},
 		{-100000, "send-keys -t homebase -X -N 500 scroll-down"},
 	} {
-		if got := strings.Join(ScrollArgs(tc.lines), " "); got != tc.want {
+		if got := strings.Join(ScrollArgs(SessionName, tc.lines), " "); got != tc.want {
 			t.Errorf("ScrollArgs(%d) = %q, want %q", tc.lines, got, tc.want)
 		}
 	}
@@ -28,7 +28,7 @@ func TestScrollArgs(t *testing.T) {
 // "-e" is what makes swiping back down return to the live shell with nothing
 // to dismiss. Without it the pane stays in copy mode forever.
 func TestCopyModeExitsAtTheBottom(t *testing.T) {
-	if got := strings.Join(CopyModeArgs(), " "); got != "copy-mode -e -t homebase" {
+	if got := strings.Join(CopyModeArgs(SessionName), " "); got != "copy-mode -e -t homebase" {
 		t.Errorf("CopyModeArgs = %q", got)
 	}
 }

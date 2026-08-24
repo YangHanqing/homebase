@@ -32,8 +32,15 @@ var upgrader = websocket.Upgrader{
 
 // Hub serves one WebSocket per request (Model A).
 type Hub struct {
+	// Dialer is used when the request carries no "?project=" query param —
+	// the legacy singleton session.
 	Dialer session.Dialer
-	Log    *slog.Logger
+	// Project, if set, resolves a "?project=<id>" query param to a
+	// per-project dialer. A request naming a project is rejected before the
+	// upgrade when this is nil or returns an error, rather than upgrading
+	// and failing in-band.
+	Project func(id string) (session.Dialer, error)
+	Log     *slog.Logger
 }
 
 func (h *Hub) log() *slog.Logger {
@@ -45,6 +52,20 @@ func (h *Hub) log() *slog.Logger {
 
 // ServeHTTP upgrades and pipes Proc ↔ browser.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	dialer := h.Dialer
+	if id := r.URL.Query().Get("project"); id != "" {
+		if h.Project == nil {
+			http.Error(w, "unknown project", http.StatusNotFound)
+			return
+		}
+		d, err := h.Project(id)
+		if err != nil {
+			http.Error(w, "unknown project", http.StatusNotFound)
+			return
+		}
+		dialer = d
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log().Debug("ws upgrade failed", "err", err)
@@ -53,23 +74,23 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	h.log().Info("ws open")
-	h.bridge(r.Context(), conn)
+	h.bridge(r.Context(), conn, dialer)
 	h.log().Info("ws close")
 }
 
-func (h *Hub) bridge(parent context.Context, raw *websocket.Conn) {
+func (h *Hub) bridge(parent context.Context, raw *websocket.Conn, dialer session.Dialer) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	c := &safeConn{c: raw}
 	_ = c.status("connecting", "", "")
 
-	if h.Dialer == nil {
+	if dialer == nil {
 		_ = c.status("error", session.CodePTYSpawn, "no dialer")
 		return
 	}
 
-	proc, err := h.Dialer.Start(ctx, session.Size{Cols: 80, Rows: 24})
+	proc, err := dialer.Start(ctx, session.Size{Cols: 80, Rows: 24})
 	if err != nil {
 		code, msg := session.Classify(nil, err)
 		h.log().Info("pty spawn failed", "code", code, "err", err)

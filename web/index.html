@@ -40,13 +40,13 @@
           </div>
         </header>
         <div class="listhead">
-          <span class="listhead-label" data-i18n="sidebar.windows">Windows</span>
+          <span class="listhead-label" data-i18n="sidebar.projects">Projects</span>
           <span class="led" id="side-led" aria-hidden="true"></span>
           <span class="listhead-state" id="side-state"></span>
           <span class="listhead-clients" id="side-clients" hidden></span>
-          <button type="button" class="btn-add" id="btn-window-add" data-i18n="sidebar.new">+ New</button>
+          <button type="button" class="btn-add" id="btn-project-add" data-i18n="sidebar.addProject">+ Project</button>
         </div>
-        <ul class="list" id="window-list"></ul>
+        <div class="proj-list" id="proj-list"></div>
         <p class="list-msg" id="list-msg" hidden></p>
       </aside>
       <main class="main">
@@ -151,6 +151,7 @@
       <h2 data-i18n="rename.title">Rename window</h2>
       <p class="form-hint" data-i18n="rename.hint">A renamed window stops following the running command's own name.</p>
       <input type="hidden" id="r-index">
+      <input type="hidden" id="r-project">
       <label>
         <span data-i18n="rename.name">Name</span>
         <input id="r-name" required maxlength="64">
@@ -161,6 +162,38 @@
         <button type="submit" class="btn-solid" data-i18n="common.save">Save</button>
       </div>
     </form>
+  </div>
+
+  <div class="modal" id="project-modal" hidden>
+    <form class="sheet" id="project-form" autocomplete="off">
+      <h2 data-i18n="project.add.title">Add project</h2>
+      <p class="form-hint" data-i18n="project.add.hint">A project is a folder. New windows created under it start there.</p>
+      <label>
+        <span data-i18n="project.add.path">Folder</span>
+        <input id="p-path" required data-i18n-placeholder="project.add.path">
+      </label>
+      <p class="form-err" id="project-form-err" hidden></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="btn-project-browse" data-i18n="project.add.browse">Browse…</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-ghost" id="btn-project-cancel" data-i18n="common.cancel">Cancel</button>
+        <button type="submit" class="btn-solid" data-i18n="common.save">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal" id="browse-modal" hidden>
+    <div class="sheet browse-sheet" role="dialog" aria-modal="true" aria-labelledby="browse-title">
+      <h2 id="browse-title" data-i18n="browse.title">Choose a folder</h2>
+      <p class="browse-path" id="browse-path"></p>
+      <p class="form-err" id="browse-form-err" hidden></p>
+      <ul class="browse-list" id="browse-list"></ul>
+      <div class="sheet-actions">
+        <button type="button" class="btn-ghost" id="btn-browse-cancel" data-i18n="common.cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn-solid" id="btn-browse-select" data-i18n="browse.select">Select this folder</button>
+      </div>
+    </div>
   </div>
 
   <script src="/vendor/xterm/xterm.js"></script>

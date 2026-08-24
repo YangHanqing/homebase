@@ -13,8 +13,20 @@ import (
 	"strings"
 )
 
-// SessionName is the only tmux session Homebase ever touches.
+// SessionName is the legacy singleton session, shown in the sidebar as the
+// ungrouped bucket. It predates per-project sessions and is kept as-is for
+// zero-migration backward compatibility.
 const SessionName = "homebase"
+
+// ProjectSessionPrefix names every per-project tmux session.
+const ProjectSessionPrefix = "homebase-"
+
+// ProjectSession names the tmux session for a tracked project. id must
+// already be validated (internal/ident.ValidateProjectID): it becomes part of
+// a tmux target string, so anything else could smuggle a ":" or "." into one.
+func ProjectSession(id string) string {
+	return ProjectSessionPrefix + id
+}
 
 // Errors surfaced by a Runner.
 var (
@@ -50,40 +62,55 @@ const listFormat = "#{window_index} #{window_active} #{window_activity} #{window
 //
 // The ";" must stay its own argv element. Locally tmux needs it as a separate
 // argument; remotely it is POSIX-single-quoted so /bin/sh does not eat it.
-func AttachArgs(dir string) []string {
-	args := []string{"new-session", "-A", "-s", SessionName}
+func AttachArgs(session, dir string) []string {
+	args := []string{"new-session", "-A", "-s", session}
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
 	return append(args,
 		";",
-		"set-option", "-t", SessionName, "status", "off",
+		"set-option", "-t", session, "status", "off",
 	)
 }
 
 // ListArgs lists the windows of the session, one per line.
-func ListArgs() []string {
-	return []string{"list-windows", "-t", SessionName, "-F", listFormat}
+func ListArgs(session string) []string {
+	return []string{"list-windows", "-t", session, "-F", listFormat}
 }
 
 // ClientsArgs lists the tmux clients attached to the session, one per line.
 // Anyone attached — a Homebase browser tab or a plain `tmux attach` over ssh
 // — counts, because any of them can shrink the shared window via tmux's
 // smallest-client resize behavior.
-func ClientsArgs() []string {
-	return []string{"list-clients", "-t", SessionName}
+func ClientsArgs(session string) []string {
+	return []string{"list-clients", "-t", session}
 }
 
 // CurrentPathArgs prints the working directory of the session's currently
 // active pane, used to seed a new window's start directory.
-func CurrentPathArgs() []string {
-	return []string{"display-message", "-p", "-t", SessionName, "#{pane_current_path}"}
+func CurrentPathArgs(session string) []string {
+	return []string{"display-message", "-p", "-t", session, "#{pane_current_path}"}
 }
 
 // NewWindowArgs creates a window and prints its index. dir, if non-empty,
 // becomes the new window's start directory via -c.
-func NewWindowArgs(dir string) []string {
-	args := []string{"new-window", "-t", SessionName}
+func NewWindowArgs(session, dir string) []string {
+	args := []string{"new-window", "-t", session}
+	if dir != "" {
+		args = append(args, "-c", dir)
+	}
+	return append(args, "-P", "-F", "#{window_index}")
+}
+
+// NewSessionDetachedArgs creates a session with one window, without
+// attaching, and prints that window's index. It exists only for
+// Client.NewWindow's fallback: unlike the PTY channel's "new-session -A"
+// (attach-if-exists, hence idempotent), plain "new-window" works only on a
+// session that already exists — and a per-project session's first window can
+// be requested from the sidebar's "+" button before its terminal has ever
+// been opened.
+func NewSessionDetachedArgs(session, dir string) []string {
+	args := []string{"new-session", "-d", "-s", session}
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
@@ -92,14 +119,16 @@ func NewWindowArgs(dir string) []string {
 
 // RenameWindowArgs renames one window. tmux clears that window's
 // automatic-rename as a side effect, which is what makes the name stick.
-func RenameWindowArgs(index int, name string) []string {
-	return []string{"rename-window", "-t", target(index), name}
+func RenameWindowArgs(session string, index int, name string) []string {
+	return []string{"rename-window", "-t", target(session, index), name}
 }
 
-// KillWindowArgs kills one window. Callers must refuse to kill the last one:
-// that would destroy the session.
-func KillWindowArgs(index int) []string {
-	return []string{"kill-window", "-t", target(index)}
+// KillWindowArgs kills one window. Callers must refuse to kill the last one
+// in the legacy singleton session, since that would destroy it — a
+// per-project session has no such rule; killing its last window is expected
+// to end that session, and it is recreated on demand.
+func KillWindowArgs(session string, index int) []string {
+	return []string{"kill-window", "-t", target(session, index)}
 }
 
 // maxScrollLines bounds one scroll request. tmux clamps at the ends of its
@@ -115,14 +144,14 @@ const maxScrollLines = 500
 // live shell" with nothing to dismiss. Re-entering while already in copy mode
 // keeps the current scroll position, so callers may issue this before every
 // scroll and stay stateless.
-func CopyModeArgs() []string {
-	return []string{"copy-mode", "-e", "-t", SessionName}
+func CopyModeArgs(session string) []string {
+	return []string{"copy-mode", "-e", "-t", session}
 }
 
 // ScrollArgs moves the active pane's view: positive lines go back into
 // history, negative come forward again. "send-keys -X" outside copy mode
 // fails with "not in a mode", so CopyModeArgs has to run first.
-func ScrollArgs(lines int) []string {
+func ScrollArgs(session string, lines int) []string {
 	cmd := "scroll-up"
 	if lines < 0 {
 		cmd, lines = "scroll-down", -lines
@@ -130,26 +159,26 @@ func ScrollArgs(lines int) []string {
 	if lines > maxScrollLines {
 		lines = maxScrollLines
 	}
-	return []string{"send-keys", "-t", SessionName, "-X", "-N", strconv.Itoa(lines), cmd}
+	return []string{"send-keys", "-t", session, "-X", "-N", strconv.Itoa(lines), cmd}
 }
 
 // CancelCopyModeArgs leaves copy mode and jumps back to the live output.
-func CancelCopyModeArgs() []string {
-	return []string{"send-keys", "-t", SessionName, "-X", "cancel"}
+func CancelCopyModeArgs(session string) []string {
+	return []string{"send-keys", "-t", session, "-X", "cancel"}
 }
 
 // InModeArgs prints 1 when the session's active pane is in copy mode.
-func InModeArgs() []string {
-	return []string{"display-message", "-p", "-t", SessionName, "#{pane_in_mode}"}
+func InModeArgs(session string) []string {
+	return []string{"display-message", "-p", "-t", session, "#{pane_in_mode}"}
 }
 
 // SelectWindowArgs makes one window current for the session.
-func SelectWindowArgs(index int) []string {
-	return []string{"select-window", "-t", target(index)}
+func SelectWindowArgs(session string, index int) []string {
+	return []string{"select-window", "-t", target(session, index)}
 }
 
-func target(index int) string {
-	return SessionName + ":" + strconv.Itoa(index)
+func target(session string, index int) string {
+	return session + ":" + strconv.Itoa(index)
 }
 
 // LocalBinary finds tmux for the local host. Under launchd the process has a

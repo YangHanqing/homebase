@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -68,17 +69,34 @@ func (r LocalRunner) Run(ctx context.Context, args []string) ([]byte, error) {
 // Client is the window-management API the REST layer talks to.
 type Client struct {
 	R Runner
+	// Session is the tmux session this client operates on. Empty means the
+	// legacy singleton session (SessionName), so a zero-value Client keeps
+	// working exactly as it did before per-project sessions existed.
+	Session string
 }
 
-// NewClient builds the local control-channel client.
+// NewClient builds the local control-channel client for the legacy singleton
+// session.
 func NewClient() Client {
 	return Client{R: LocalRunner{}}
+}
+
+// NewClientFor builds a local control-channel client for one tmux session.
+func NewClientFor(session string) Client {
+	return Client{R: LocalRunner{}, Session: session}
+}
+
+func (c Client) session() string {
+	if c.Session == "" {
+		return SessionName
+	}
+	return c.Session
 }
 
 // ListWindows returns the session's windows. A session that does not exist
 // yet is an empty list, not an error: the PTY connect will create it.
 func (c Client) ListWindows(ctx context.Context) ([]Window, error) {
-	out, err := c.R.Run(ctx, ListArgs())
+	out, err := c.R.Run(ctx, ListArgs(c.session()))
 	if errors.Is(err, ErrNoSession) {
 		return []Window{}, nil
 	}
@@ -127,7 +145,7 @@ func parseWindows(out []byte) []Window {
 // ClientCount returns how many tmux clients are attached to the session. A
 // missing session means zero, not an error: the PTY connect will create it.
 func (c Client) ClientCount(ctx context.Context) (int, error) {
-	out, err := c.R.Run(ctx, ClientsArgs())
+	out, err := c.R.Run(ctx, ClientsArgs(c.session()))
 	if errors.Is(err, ErrNoSession) {
 		return 0, nil
 	}
@@ -149,15 +167,51 @@ func (c Client) ClientCount(ctx context.Context) (int, error) {
 // else, including the default "same", copies the currently active pane's
 // directory, like a normal terminal's new-tab.
 func (c Client) NewWindow(ctx context.Context, dirMode string) (int, error) {
-	out, err := c.R.Run(ctx, NewWindowArgs(c.startDir(ctx, dirMode)))
+	dir := c.startDir(ctx, dirMode)
+	out, err := c.R.Run(ctx, NewWindowArgs(c.session(), dir))
 	if err != nil {
-		return 0, err
+		if !c.sessionMissing(err) {
+			return 0, err
+		}
+		// new-window only works on a session that already exists -- unlike
+		// the PTY channel's "new-session -A", which is attach-if-exists and
+		// therefore idempotent. A per-project session's first window can be
+		// requested here before its terminal has ever been opened, so bring
+		// the session into being: its initial window IS the requested one.
+		out, err = c.R.Run(ctx, NewSessionDetachedArgs(c.session(), dir))
+		if err != nil && strings.Contains(err.Error(), "duplicate session") {
+			// Lost a race with a concurrent PTY attach creating the same
+			// session (the browser opens both at once when the sidebar's
+			// "+" switches the terminal to this project too); it exists
+			// now, so the original command works.
+			out, err = c.R.Run(ctx, NewWindowArgs(c.session(), dir))
+		}
+		if err != nil {
+			return 0, err
+		}
 	}
 	idx, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {
 		return 0, errors.New("tmux did not print a window index")
 	}
 	return idx, nil
+}
+
+// sessionMissing reports whether err means "this client's session does not
+// exist yet," for the one control command that cannot say so the normal way.
+// new-window's target has no ":index" suffix, and tmux's target resolver
+// reports an unmatched bare name as a missing *window*, not a missing
+// session -- "can't find window: homebase-xxx" rather than "can't find
+// session: homebase-xxx". The comparison is exact and keyed to this client's
+// own session name specifically so it can never be tripped by an unrelated
+// "can't find window: <index>" error against a real window index, e.g. from
+// KillWindow or SelectWindow targeting a stale index in a session that does
+// exist.
+func (c Client) sessionMissing(err error) bool {
+	if errors.Is(err, ErrNoSession) {
+		return true
+	}
+	return err.Error() == fmt.Sprintf("tmux: can't find window: %s", c.session())
 }
 
 // startDir resolves the directory a new window should open in. A missing
@@ -168,7 +222,7 @@ func (c Client) startDir(ctx context.Context, dirMode string) string {
 	if dirMode == "home" {
 		return home
 	}
-	out, err := c.R.Run(ctx, CurrentPathArgs())
+	out, err := c.R.Run(ctx, CurrentPathArgs(c.session()))
 	if err != nil {
 		return home
 	}
@@ -181,21 +235,27 @@ func (c Client) startDir(ctx context.Context, dirMode string) string {
 // RenameWindow sets a window's name. tmux turns off automatic-rename for that
 // window as a side effect, so the name sticks.
 func (c Client) RenameWindow(ctx context.Context, index int, name string) error {
-	_, err := c.R.Run(ctx, RenameWindowArgs(index, name))
+	_, err := c.R.Run(ctx, RenameWindowArgs(c.session(), index, name))
 	return err
 }
 
-// KillWindow removes a window. It refuses the last one, because tmux would
-// destroy the session along with it — see AGENT.md hard constraint 3.
+// KillWindow removes a window. In the legacy singleton session it refuses
+// the last one, because tmux would destroy the session along with it — see
+// AGENT.md hard constraint 3. A per-project session has no such guard: its
+// existence is tracked in projects.json, not by keeping a window alive, so
+// closing the last window is allowed and simply ends that tmux session; the
+// next window reopens it.
 func (c Client) KillWindow(ctx context.Context, index int) error {
-	windows, err := c.ListWindows(ctx)
-	if err != nil {
-		return err
+	if c.session() == SessionName {
+		windows, err := c.ListWindows(ctx)
+		if err != nil {
+			return err
+		}
+		if len(windows) <= 1 {
+			return ErrLastWindow
+		}
 	}
-	if len(windows) <= 1 {
-		return ErrLastWindow
-	}
-	_, err = c.R.Run(ctx, KillWindowArgs(index))
+	_, err := c.R.Run(ctx, KillWindowArgs(c.session(), index))
 	return err
 }
 
@@ -211,16 +271,16 @@ func (c Client) Scroll(ctx context.Context, lines int) (bool, error) {
 	if lines == 0 {
 		// Cancelling when not in copy mode is "not in a mode", which is the
 		// desired end state, not a failure.
-		_, _ = c.R.Run(ctx, CancelCopyModeArgs())
+		_, _ = c.R.Run(ctx, CancelCopyModeArgs(c.session()))
 		return false, nil
 	}
-	if _, err := c.R.Run(ctx, CopyModeArgs()); err != nil {
+	if _, err := c.R.Run(ctx, CopyModeArgs(c.session())); err != nil {
 		return false, err
 	}
-	if _, err := c.R.Run(ctx, ScrollArgs(lines)); err != nil {
+	if _, err := c.R.Run(ctx, ScrollArgs(c.session(), lines)); err != nil {
 		return false, err
 	}
-	out, err := c.R.Run(ctx, InModeArgs())
+	out, err := c.R.Run(ctx, InModeArgs(c.session()))
 	if err != nil {
 		return false, err
 	}
@@ -230,6 +290,6 @@ func (c Client) Scroll(ctx context.Context, lines int) (bool, error) {
 // SelectWindow makes a window current for the session, which is what the
 // attached PTY redraws.
 func (c Client) SelectWindow(ctx context.Context, index int) error {
-	_, err := c.R.Run(ctx, SelectWindowArgs(index))
+	_, err := c.R.Run(ctx, SelectWindowArgs(c.session(), index))
 	return err
 }

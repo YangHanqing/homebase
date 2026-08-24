@@ -153,7 +153,7 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := exec.CommandContext(ctx, bin,
-		"display-message", "-p", "-t", target(idx), "#{pane_current_path}").Output()
+		"display-message", "-p", "-t", target(SessionName, idx), "#{pane_current_path}").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestLiveAttachTurnsStatusBarOff(t *testing.T) {
 	defer cancel()
 
 	// Same argv the PTY channel uses, minus the attach (-d keeps it headless).
-	args := append([]string{"new-session", "-d"}, AttachArgs("")[1:]...)
+	args := append([]string{"new-session", "-d"}, AttachArgs(SessionName, "")[1:]...)
 	if out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput(); err != nil {
 		t.Skipf("cannot start a private tmux server: %v (%s)", err, out)
 	}

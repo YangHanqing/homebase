@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/yanghanqing/homebase/internal/api"
 	"github.com/yanghanqing/homebase/internal/auth"
+	"github.com/yanghanqing/homebase/internal/projects"
 	"github.com/yanghanqing/homebase/internal/session"
 )
 
@@ -49,6 +51,12 @@ func runServe(args []string) int {
 	}
 	res := r.res
 
+	projStore, err := projects.Load(filepath.Join(r.store.Dir(), "projects.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "projects:", err)
+		return 1
+	}
+
 	if res.TierFallback {
 		log.Warn("access is private but no address inside the trusted ranges was found; binding loopback — other devices cannot connect", "addr", res.Addr)
 	}
@@ -57,11 +65,12 @@ func runServe(args []string) int {
 	}
 
 	var h http.Handler = api.NewMuxServer(&api.Server{
-		Store:   r.store,
-		Devices: r.dev,
-		Listen:  res.Addr,
-		Dialer:  session.LocalDialer{},
-		Log:     log,
+		Store:    r.store,
+		Devices:  r.dev,
+		Projects: projStore,
+		Listen:   res.Addr,
+		Dialer:   session.LocalDialer{},
+		Log:      log,
 		Restart: func() {
 			go func() {
 				time.Sleep(400 * time.Millisecond)

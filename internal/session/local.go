@@ -15,6 +15,17 @@ import (
 type LocalDialer struct {
 	// Tmux overrides tmux discovery in tests only.
 	Tmux string
+	// Session is the tmux session to attach. Empty means the legacy
+	// singleton session (tmux.SessionName), so a zero-value LocalDialer keeps
+	// working exactly as it did before per-project sessions existed.
+	Session string
+}
+
+func (d LocalDialer) session() string {
+	if d.Session == "" {
+		return tmux.SessionName
+	}
+	return d.Session
 }
 
 // Start implements Dialer.
@@ -32,7 +43,7 @@ func (d LocalDialer) Start(ctx context.Context, sz Size) (Proc, error) {
 	}
 	sz = sz.orDefault()
 	home, _ := os.UserHomeDir()
-	cmd := exec.Command(bin, tmux.AttachArgs(home)...)
+	cmd := exec.Command(bin, tmux.AttachArgs(d.session(), home)...)
 	// creack/pty sets Setsid+Setctty. Setpgid together with that is EPERM on macOS.
 	cmd.Env = tmux.ExecEnv()
 	stderr := newLimitedBuf(4096)

@@ -23,7 +23,12 @@ func (s *Server) handleScroll(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), controlTimeout)
 	defer cancel()
-	inMode, err := s.tmuxClient().Scroll(ctx, body.Lines)
+	client, err := s.tmuxClientForRequest(r)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	inMode, err := client.Scroll(ctx, body.Lines)
 	if err != nil {
 		s.writeTmuxError(w, err)
 		return

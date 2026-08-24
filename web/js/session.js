@@ -1,5 +1,8 @@
 function HomebaseSession(opts) {
   this.term = opts.term;
+  // Empty means the legacy singleton session; a tracked project's id
+  // attaches to its own tmux session instead. See internal/tmux.ProjectSession.
+  this.project = opts.project || "";
   this.onStatus = opts.onStatus || function () {};
   this.ws = null;
   this.attempt = 0;
@@ -44,7 +47,8 @@ HomebaseSession.prototype.connect = function () {
   }
   this.setState("connecting", "", "");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = proto + "//" + location.host + "/ws";
+  const url = proto + "//" + location.host + "/ws" +
+    (this.project ? "?project=" + encodeURIComponent(this.project) : "");
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   this.ws = ws;

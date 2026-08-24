@@ -7,6 +7,7 @@ import (
 
 	"github.com/yanghanqing/homebase/internal/config"
 	"github.com/yanghanqing/homebase/internal/devices"
+	"github.com/yanghanqing/homebase/internal/projects"
 	"github.com/yanghanqing/homebase/internal/session"
 	"github.com/yanghanqing/homebase/internal/tmux"
 	"github.com/yanghanqing/homebase/internal/ws"
@@ -15,11 +16,12 @@ import (
 
 // Server holds HTTP dependencies.
 type Server struct {
-	Store   *config.Store
-	Devices *devices.Store
-	Listen  string
-	Dialer  session.Dialer
-	Log     *slog.Logger
+	Store    *config.Store
+	Devices  *devices.Store
+	Projects *projects.Store
+	Listen   string
+	Dialer   session.Dialer
+	Log      *slog.Logger
 	// NewTmux overrides control-channel construction in tests only.
 	NewTmux func() tmux.Client
 	// Restart, if set, is invoked after a successful Settings PUT so the
@@ -53,8 +55,14 @@ func NewMuxServer(s *Server) http.Handler {
 		mux.HandleFunc("DELETE /api/devices", s.handleDevicesRevokeAll)
 		mux.HandleFunc("DELETE /api/devices/{id}", s.handleDevice)
 	}
+	if s.Projects != nil {
+		mux.HandleFunc("GET /api/projects", s.handleProjects)
+		mux.HandleFunc("POST /api/projects", s.handleProjects)
+		mux.HandleFunc("DELETE /api/projects/{id}", s.handleProject)
+		mux.HandleFunc("GET /api/browse", s.handleBrowse)
+	}
 	if s.Store != nil && s.Dialer != nil {
-		mux.Handle("GET /ws", &ws.Hub{Dialer: s.Dialer, Log: s.Log})
+		mux.Handle("GET /ws", &ws.Hub{Dialer: s.Dialer, Project: s.dialerForProject, Log: s.Log})
 	}
 
 	sub, err := fs.Sub(web.FS, ".")

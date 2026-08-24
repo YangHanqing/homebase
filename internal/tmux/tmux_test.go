@@ -9,7 +9,7 @@ import (
 )
 
 func TestAttachArgsKeepsSemicolonSeparate(t *testing.T) {
-	args := AttachArgs("")
+	args := AttachArgs(SessionName, "")
 	found := -1
 	for i, a := range args {
 		if a == ";" {
@@ -30,17 +30,17 @@ func TestAttachArgsKeepsSemicolonSeparate(t *testing.T) {
 }
 
 func TestAttachArgsWithDirInsertsDashC(t *testing.T) {
-	args := AttachArgs("/tmp/x")
+	args := AttachArgs(SessionName, "/tmp/x")
 	if strings.Join(args, " ") != "new-session -A -s homebase -c /tmp/x ; set-option -t homebase status off" {
 		t.Fatalf("unexpected attach argv: %q", args)
 	}
 }
 
 func TestNewWindowArgsWithDirInsertsDashC(t *testing.T) {
-	if got := strings.Join(NewWindowArgs(""), " "); got != "new-window -t homebase -P -F #{window_index}" {
+	if got := strings.Join(NewWindowArgs(SessionName, ""), " "); got != "new-window -t homebase -P -F #{window_index}" {
 		t.Fatalf("unexpected new-window argv: %q", got)
 	}
-	if got := strings.Join(NewWindowArgs("/tmp/x"), " "); got != "new-window -t homebase -c /tmp/x -P -F #{window_index}" {
+	if got := strings.Join(NewWindowArgs(SessionName, "/tmp/x"), " "); got != "new-window -t homebase -c /tmp/x -P -F #{window_index}" {
 		t.Fatalf("unexpected new-window argv: %q", got)
 	}
 }
@@ -60,7 +60,7 @@ func TestListFormatKeepsTheNameLast(t *testing.T) {
 	if !strings.HasSuffix(listFormat, "#{window_name}") {
 		t.Fatal("the free-form window name must be the last field")
 	}
-	if got := strings.Join(ListArgs(), " "); got != "list-windows -t homebase -F "+listFormat {
+	if got := strings.Join(ListArgs(SessionName), " "); got != "list-windows -t homebase -F "+listFormat {
 		t.Fatalf("unexpected list-windows argv: %q", got)
 	}
 }

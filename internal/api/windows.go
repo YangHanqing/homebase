@@ -9,11 +9,17 @@ import (
 	"time"
 
 	"github.com/yanghanqing/homebase/internal/ident"
+	"github.com/yanghanqing/homebase/internal/session"
 	"github.com/yanghanqing/homebase/internal/tmux"
 )
 
 // controlTimeout bounds one short-lived tmux command.
 const controlTimeout = 15 * time.Second
+
+// errUnknownProject covers both a malformed id and one this server does not
+// currently track. Either way the answer is the same 404 — the format
+// details are not the browser's business.
+var errUnknownProject = errors.New("unknown project")
 
 // tmuxClient builds the control-channel client, honoring the test hook.
 func (s *Server) tmuxClient() tmux.Client {
@@ -23,10 +29,52 @@ func (s *Server) tmuxClient() tmux.Client {
 	return tmux.NewClient()
 }
 
+// tmuxClientForRequest resolves the optional "?project=<id>" query param
+// shared by every /api/windows and /api/scroll route. An absent param keeps
+// today's behavior exactly: the legacy singleton session, via tmuxClient.
+func (s *Server) tmuxClientForRequest(r *http.Request) (tmux.Client, error) {
+	id := r.URL.Query().Get("project")
+	if id == "" {
+		return s.tmuxClient(), nil
+	}
+	if err := ident.ValidateProjectID(id); err != nil {
+		return tmux.Client{}, errUnknownProject
+	}
+	if s.Projects == nil {
+		return tmux.Client{}, errUnknownProject
+	}
+	if _, err := s.Projects.Find(id); err != nil {
+		return tmux.Client{}, errUnknownProject
+	}
+	client := s.tmuxClient()
+	client.Session = tmux.ProjectSession(id)
+	return client, nil
+}
+
+// dialerForProject resolves a "?project=<id>" query param on the WebSocket
+// upgrade to a per-project dialer, the same validation tmuxClientForRequest
+// applies to the control channel.
+func (s *Server) dialerForProject(id string) (session.Dialer, error) {
+	if err := ident.ValidateProjectID(id); err != nil {
+		return nil, errUnknownProject
+	}
+	if s.Projects == nil {
+		return nil, errUnknownProject
+	}
+	if _, err := s.Projects.Find(id); err != nil {
+		return nil, errUnknownProject
+	}
+	return session.LocalDialer{Session: tmux.ProjectSession(id)}, nil
+}
+
 func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), controlTimeout)
 	defer cancel()
-	client := s.tmuxClient()
+	client, err := s.tmuxClientForRequest(r)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -84,7 +132,11 @@ func (s *Server) handleTmuxWindow(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), controlTimeout)
 	defer cancel()
-	client := s.tmuxClient()
+	client, err := s.tmuxClientForRequest(r)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPut:
