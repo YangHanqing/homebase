@@ -165,9 +165,13 @@ func (c Client) ClientCount(ctx context.Context) (int, error) {
 // start directory: "home" always starts in $HOME (not in whatever cwd the
 // homebase process happens to have — often "/" under launchd); anything
 // else, including the default "same", copies the currently active pane's
-// directory, like a normal terminal's new-tab.
-func (c Client) NewWindow(ctx context.Context, dirMode string) (int, error) {
-	dir := c.startDir(ctx, dirMode)
+// directory, like a normal terminal's new-tab. fallbackDir is used instead
+// of $HOME when that lookup fails — chiefly a project's own path, so a
+// project's very first window (no session yet, so there is no "current
+// pane" to copy) still opens where the project lives rather than in $HOME.
+// Pass "" for the legacy singleton session, which has no such path.
+func (c Client) NewWindow(ctx context.Context, dirMode, fallbackDir string) (int, error) {
+	dir := c.startDir(ctx, dirMode, fallbackDir)
 	out, err := c.R.Run(ctx, NewWindowArgs(c.session(), dir))
 	if err != nil {
 		if !c.sessionMissing(err) {
@@ -215,19 +219,22 @@ func (c Client) sessionMissing(err error) bool {
 }
 
 // startDir resolves the directory a new window should open in. A missing
-// session, or any other lookup failure, falls back to $HOME rather than
-// failing window creation over it.
-func (c Client) startDir(ctx context.Context, dirMode string) string {
+// session, or any other lookup failure, falls back to fallbackDir (when
+// given — typically the owning project's path) and then to $HOME, rather
+// than failing window creation over it.
+func (c Client) startDir(ctx context.Context, dirMode, fallbackDir string) string {
 	home, _ := os.UserHomeDir()
 	if dirMode == "home" {
 		return home
 	}
 	out, err := c.R.Run(ctx, CurrentPathArgs(c.session()))
-	if err != nil {
-		return home
+	if err == nil {
+		if dir := strings.TrimSpace(string(out)); dir != "" {
+			return dir
+		}
 	}
-	if dir := strings.TrimSpace(string(out)); dir != "" {
-		return dir
+	if fallbackDir != "" {
+		return fallbackDir
 	}
 	return home
 }

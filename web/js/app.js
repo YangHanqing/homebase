@@ -292,9 +292,13 @@
     dot.setAttribute("aria-hidden", "true");
     dot.title = lastStatus.state === "connected" ? "" : (t(LABEL[lastStatus.state]) || lastStatus.state || "");
     wrap.appendChild(dot);
+    // Only worth a badge once someone besides the viewer themself is
+    // attached -- "1 watching" is always true and just adds width to a row
+    // that already has the dot for "connected". The badge is a bare count,
+    // not a sentence; the full "N watching" phrasing lives in the tooltip.
     const count = (sections[currentProject] || {}).clients;
-    if (count) {
-      const c = el("span", "proj-attached-clients" + (count > 1 ? " is-crowded" : ""));
+    if (count > 1) {
+      const c = el("span", "proj-attached-clients is-crowded");
       c.textContent = t("sidebar.clients", { count: count });
       c.title = t("sidebar.clientsHint", { count: count });
       wrap.appendChild(c);
@@ -318,21 +322,14 @@
     }
 
     const actions = el("div", "proj-actions");
-    // The "+" (new window) stays a normal-weight, always-visible button --
-    // it is the one frequent action here. Delete rides the same
-    // hover/focus-reveal treatment as a window's own rename/kill.
-    const addBtn = el("button", "proj-add");
-    addBtn.type = "button";
-    addBtn.textContent = "+";
-    addBtn.title = t("sidebar.new");
-    addBtn.setAttribute("aria-label", t("project.newWindowAria", { name: label }));
-    addBtn.addEventListener("click", function (ev) {
-      ev.stopPropagation();
-      newWindow(id);
-    });
-    actions.appendChild(addBtn);
+    // Delete sits to the left of "+", revealed on hover/focus by taking up
+    // no layout space at all (proj-del below, not the opacity-only
+    // hover-reveal a window row's actions use) -- otherwise its reserved
+    // slot would push "+" left of its resting place even while hidden. "+"
+    // (new window) is the one frequent action here, so it stays last: a
+    // normal-weight, always-visible button pinned at the row's right edge.
     if (project) {
-      const delBtn = el("button", "btn-tiny hover-reveal");
+      const delBtn = el("button", "btn-tiny proj-del");
       delBtn.type = "button";
       delBtn.textContent = "\u{1F5D1}︎";
       delBtn.title = t("project.delete");
@@ -343,6 +340,16 @@
       });
       actions.appendChild(delBtn);
     }
+    const addBtn = el("button", "proj-add");
+    addBtn.type = "button";
+    addBtn.textContent = "+";
+    addBtn.title = t("sidebar.new");
+    addBtn.setAttribute("aria-label", t("project.newWindowAria", { name: label }));
+    addBtn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      newWindow(id);
+    });
+    actions.appendChild(addBtn);
 
     head.appendChild(arrow);
     head.appendChild(nameEl);

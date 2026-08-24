@@ -81,7 +81,7 @@ func TestLiveControlChannel(t *testing.T) {
 		t.Fatalf("fresh session should have one window, got %+v", got)
 	}
 
-	idx, err := c.NewWindow(ctx, "home")
+	idx, err := c.NewWindow(ctx, "home", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 	killPrivateServer(t, bin, dir)
 
 	c := Client{R: LocalRunner{Bin: bin}}
-	idx, err := c.NewWindow(ctx, "home")
+	idx, err := c.NewWindow(ctx, "home", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestLiveWindowNamedAfterATmuxErrorDoesNotEmptyTheList(t *testing.T) {
 	c := liveClient(t)
 	ctx := context.Background()
 
-	idx, err := c.NewWindow(ctx, "home")
+	idx, err := c.NewWindow(ctx, "home", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestLiveWindowNamedAfterATmuxErrorDoesNotEmptyTheList(t *testing.T) {
 		if err := c.KillWindow(ctx, idx); err != nil {
 			t.Fatalf("%q: kill refused: %v", name, err)
 		}
-		if idx, err = c.NewWindow(ctx, "home"); err != nil {
+		if idx, err = c.NewWindow(ctx, "home", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -401,7 +401,7 @@ func TestLiveBackgroundWindowActivityAdvances(t *testing.T) {
 
 	// Window 0 stops being the current one as soon as this lands, so what
 	// follows is measured on a window with no viewer at all.
-	if _, err := c.NewWindow(ctx, "home"); err != nil {
+	if _, err := c.NewWindow(ctx, "home", ""); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := c.R.Run(ctx, []string{"show-options", "-w", "-t", SessionName + ":0", "monitor-activity"}); err != nil {

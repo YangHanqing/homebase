@@ -51,6 +51,23 @@ func (s *Server) tmuxClientForRequest(r *http.Request) (tmux.Client, error) {
 	return client, nil
 }
 
+// projectPathForRequest resolves the optional "?project=<id>" query param to
+// that project's path, for NewWindow's fallback directory. Any failure —
+// no param, unknown id — yields "", the legacy singleton's "no fallback"
+// value; tmuxClientForRequest has already turned a real error into 404 by
+// the time this runs, so this lookup only needs to be best-effort.
+func (s *Server) projectPathForRequest(r *http.Request) string {
+	id := r.URL.Query().Get("project")
+	if id == "" || s.Projects == nil {
+		return ""
+	}
+	p, err := s.Projects.Find(id)
+	if err != nil {
+		return ""
+	}
+	return p.Path
+}
+
 // dialerForProject resolves a "?project=<id>" query param on the WebSocket
 // upgrade to a per-project dialer, the same validation tmuxClientForRequest
 // applies to the control channel.
@@ -108,7 +125,7 @@ func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		index, err := client.NewWindow(ctx, body.Dir)
+		index, err := client.NewWindow(ctx, body.Dir, s.projectPathForRequest(r))
 		if err != nil {
 			s.writeTmuxError(w, err)
 			return

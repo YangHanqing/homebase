@@ -322,16 +322,33 @@ button, input { touch-action: manipulation; }
   gap: 4px;
 }
 .proj-attached .led { margin-top: 0; }
+/* A bare count, shown only when someone besides the viewer themself is
+   attached (see attachedIndicator in app.js) -- a small round badge rather
+   than a sentence, so the common "just me" case costs nothing and a real
+   crowd costs one digit. */
 .proj-attached-clients {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1;
   color: var(--muted);
+  background: var(--hover);
   white-space: nowrap;
 }
 .proj-attached-clients.is-crowded { color: var(--led-err); }
 .proj-actions { display: flex; align-items: center; gap: 2px; }
-/* The "+" (new window) stays prominent -- it's the frequent action -- while
-   delete rides the same hover-reveal treatment as a window's own actions. */
+/* The "+" (new window) stays prominent -- it's the frequent action -- and
+   sits last so it always lands at the row's right edge. Delete
+   (.proj-del below) sits before it and, unlike a window row's own
+   hover-reveal actions, is collapsed with display rather than opacity: it
+   must claim zero width while hidden, or it would shove "+" out of its
+   resting place every time it appears. */
 .proj-add {
   width: 22px;
   height: 22px;
@@ -344,6 +361,14 @@ button, input { touch-action: manipulation; }
   color: var(--ink);
 }
 .proj-add:hover { border-color: var(--accent); color: var(--accent); }
+
+@media (hover: hover) and (pointer: fine) {
+  .proj-del { display: none; }
+  .proj-head:hover .proj-del,
+  .proj-head:focus-within .proj-del {
+    display: inline-flex;
+  }
+}
 
 .list {
   list-style: none;
