@@ -24,9 +24,16 @@ var ErrLastWindow = errors.New("refusing to kill the last window")
 // the same clock. It also updates for background windows, which is the whole
 // point — that is how the sidebar can tell which window an agent is working
 // in without attaching to it.
+//
+// Title is the OSC 0/2 title the program in the window set (tmux's
+// #{pane_title}), and it is empty whenever the window name is the better
+// label: a manually renamed window (the user's own name wins), a title tmux
+// never overwrote from its default (the hostname), or no title at all. So
+// the frontend's rule is simply "Title or else Name".
 type Window struct {
 	Index    int    `json:"index"`
 	Name     string `json:"name"`
+	Title    string `json:"title,omitempty"`
 	Active   bool   `json:"active"`
 	Activity int64  `json:"activity"`
 	Bell     bool   `json:"bell"`
@@ -108,9 +115,18 @@ func (c Client) ListWindows(ctx context.Context) ([]Window, error) {
 
 func parseWindows(out []byte) []Window {
 	windows := []Window{}
+	titles := map[int]string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimRight(line, "\r")
 		if line == "" {
+			continue
+		}
+		// The title listing (titleFormat) shares this stream; its lines are
+		// the only ones that do not start with a window index.
+		if strings.HasPrefix(line, titleTag) {
+			if idx, title, ok := parseTitleLine(line); ok {
+				titles[idx] = title
+			}
 			continue
 		}
 		// index, active, activity, bell, then the name, which may itself
@@ -139,7 +155,52 @@ func parseWindows(out []byte) []Window {
 			Name:     parts[4],
 		})
 	}
+	for i := range windows {
+		windows[i].Title = titles[windows[i].Index]
+	}
 	return windows
+}
+
+// parseTitleLine reads one titleFormat line and decides whether that title is
+// worth showing at all. It returns ok=false for a line it cannot read, and an
+// empty title for one the sidebar should ignore in favour of the window name.
+func parseTitleLine(line string) (int, string, bool) {
+	// tag, index, automatic-rename, then the free-form title.
+	parts := strings.SplitN(line, " ", 4)
+	if len(parts) < 4 {
+		return 0, "", false
+	}
+	idx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, "", false
+	}
+	// "0" means the user renamed this window by hand; anything else -- "1",
+	// or an empty field on a tmux that does not report the option -- leaves
+	// tmux's own naming in charge, and then the title is the better label.
+	if parts[2] == "0" {
+		return idx, "", true
+	}
+	return idx, displayTitle(parts[3]), true
+}
+
+// hostname is what tmux seeds every pane title with, so a pane whose program
+// never set a title reports it verbatim. Resolved once: it is only ever
+// compared against, and a machine that renames itself mid-session is not
+// worth a syscall per poll.
+var hostname = func() string {
+	h, _ := os.Hostname()
+	return h
+}()
+
+func displayTitle(title string) string {
+	title = strings.TrimSpace(title)
+	// The untouched default (tmux seeds pane_title with the hostname, in
+	// either its full or short form) is not a title -- it is the absence of
+	// one, and showing it would replace every window name with the same word.
+	if title == hostname || title == strings.SplitN(hostname, ".", 2)[0] {
+		return ""
+	}
+	return title
 }
 
 // ClientCount returns how many tmux clients are attached to the session. A

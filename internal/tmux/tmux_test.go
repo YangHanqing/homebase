@@ -60,8 +60,81 @@ func TestListFormatKeepsTheNameLast(t *testing.T) {
 	if !strings.HasSuffix(listFormat, "#{window_name}") {
 		t.Fatal("the free-form window name must be the last field")
 	}
-	if got := strings.Join(ListArgs(SessionName), " "); got != "list-windows -t homebase -F "+listFormat {
+	if got := strings.Join(ListArgs(SessionName), " "); got != "list-windows -t homebase -F "+listFormat+" ; list-windows -t homebase -F "+titleFormat {
 		t.Fatalf("unexpected list-windows argv: %q", got)
+	}
+}
+
+// The title listing is the second half of the same contract: it may only be a
+// separate listing (a format ending in a free-form field cannot carry another
+// one), its lines must be distinguishable from window lines, and the
+// free-form title has to come last for the same reason the name does.
+func TestTitleFormatKeepsTheTitleLast(t *testing.T) {
+	want := titleTag + "#{window_index} #{automatic-rename} #{pane_title}"
+	if titleFormat != want {
+		t.Fatalf("titleFormat = %q, want %q", titleFormat, want)
+	}
+	if !strings.HasSuffix(titleFormat, "#{pane_title}") {
+		t.Fatal("the free-form pane title must be the last field")
+	}
+	// A window line always starts with the window index, so the tag must not.
+	if strings.IndexAny(titleTag, "0123456789") == 0 {
+		t.Fatal("the title tag must not start with a digit")
+	}
+	if strings.ContainsAny(titleFormat, "\t\r\n") {
+		t.Fatal("titleFormat must not use a control character as a separator")
+	}
+	// The ";" separating the two listings has to reach tmux on its own, the
+	// same way AttachArgs needs it to.
+	args := ListArgs(SessionName)
+	found := -1
+	for i, a := range args {
+		if a == ";" {
+			found = i
+		}
+	}
+	if found < 0 || args[found-1] != listFormat {
+		t.Fatalf("';' should follow the first format, got %q", args)
+	}
+}
+
+// The whole point of reading the title from tmux rather than from the PTY:
+// every window gets one, not just the attached one -- and the rules that
+// decide when a title is *not* the label to show.
+func TestParseWindowsTakesTitlesFromTheSecondListing(t *testing.T) {
+	out := []byte("" +
+		"0 1 1787485588 0 claude.exe\n" +
+		"1 0 1787485591 0 zsh\n" +
+		"2 0 1787485591 0 deploy\n" +
+		"3 0 1787485591 0 vim\n" +
+		"T 0 1 review the parser\n" +
+		"T 1 1 " + hostname + "\n" +
+		"T 2 0 some stale title\n" +
+		"T 3 1 \n")
+	got := parseWindows(out)
+	want := []string{"review the parser", "", "", ""}
+	if len(got) != 4 {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i].Title != want[i] {
+			t.Errorf("window %d: title %q, want %q", i, got[i].Title, want[i])
+		}
+	}
+	// A title never replaces the name in the payload -- rename still targets
+	// the tmux name, and the frontend needs both.
+	if got[0].Name != "claude.exe" {
+		t.Fatalf("the window name must survive alongside the title: %+v", got[0])
+	}
+}
+
+// A garbled title line loses that one title, never a window: the window
+// listing is the source of truth for what exists.
+func TestParseWindowsIgnoresBadTitleLines(t *testing.T) {
+	out := []byte("0 1 1787485588 0 zsh\nT\nT x 1 nope\nT 0 1 real title\n")
+	got := parseWindows(out)
+	if len(got) != 1 || got[0].Title != "real title" {
+		t.Fatalf("got %+v", got)
 	}
 }
 

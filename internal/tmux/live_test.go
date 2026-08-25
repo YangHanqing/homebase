@@ -438,6 +438,67 @@ func TestLiveBackgroundWindowActivityAdvances(t *testing.T) {
 	}
 }
 
+// The title path end to end against a real tmux: a program's OSC 2 title
+// reaches the window list of a *background* window, which is the whole reason
+// it is read here instead of from the attached PTY -- tmux does not forward
+// the sequence to a client at all (set-titles is off, and even on it would
+// send the rendered set-titles-string, not the title).
+//
+// This also guards the two format fields on the tmux the test runs against:
+// #{pane_title} and #{automatic-rename} both have to survive one exec with
+// the two listings separated by ";".
+func TestLiveBackgroundWindowTitleReachesTheList(t *testing.T) {
+	c := liveClient(t)
+	ctx := context.Background()
+
+	// Pushes window 0 into the background, where no client is watching it.
+	if _, err := c.NewWindow(ctx, "home", ""); err != nil {
+		t.Fatal(err)
+	}
+	// A pane nobody set a title in reports the hostname, which parseWindows
+	// reads as "no title" so the sidebar keeps showing the window name.
+	if got := find(mustList(t, c, ctx), 0).Title; got != "" {
+		t.Fatalf("an untouched pane should report no title, got %q", got)
+	}
+
+	const want = "homebase title probe"
+	// printf writes the OSC 2 sequence the same way any program would.
+	if _, err := c.R.Run(ctx, []string{
+		"send-keys", "-t", SessionName + ":0",
+		`printf '\033]2;` + want + `\007'`, "Enter",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		w := find(mustList(t, c, ctx), 0)
+		if w.Title == want {
+			// The name is still the tmux window name: rename targets that,
+			// and the title only decides what the sidebar labels the row.
+			if w.Name == want {
+				t.Fatalf("the title must not overwrite the window name: %+v", w)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("title never reached the window list: %+v", w)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// A manual rename is a deliberate name, so it outranks whatever title the
+	// program keeps setting: parseWindows drops the title once tmux clears
+	// automatic-rename.
+	if err := c.RenameWindow(ctx, 0, "mine"); err != nil {
+		t.Fatal(err)
+	}
+	w := find(mustList(t, c, ctx), 0)
+	if w.Name != "mine" || w.Title != "" {
+		t.Fatalf("a renamed window should show its name and no title, got %+v", w)
+	}
+}
+
 func mustList(t *testing.T, c Client, ctx context.Context) []Window {
 	t.Helper()
 	got, err := c.ListWindows(ctx)

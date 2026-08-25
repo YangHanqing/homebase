@@ -193,9 +193,20 @@
     paneStatusHelp.textContent = bad ? (t(HELP[st.code]) || "") : "";
   }
 
+  // What to call a window. tmux's own name is a process name ("claude.exe"
+  // for every window an agent runs in), so the label people actually read is
+  // the OSC title the program set -- which the control channel carries for
+  // every window, attached or not (see internal/tmux: the PTY never sees
+  // those sequences, tmux swallows them). The server has already blanked
+  // "title" wherever the name is the better label, including a window the
+  // user renamed by hand, so this is the whole rule.
+  function windowLabel(w) {
+    return w.title || w.name;
+  }
+
   function syncChrome() {
     const active = activeWindow();
-    chromeHost.textContent = active ? active.name : "";
+    chromeHost.textContent = active ? windowLabel(active) : "";
   }
 
   function activeWindow() {
@@ -430,8 +441,12 @@
     const dotEl = el("span", "plate-dot is-" + state);
     dotEl.setAttribute("aria-hidden", "true");
     dotEl.title = stateLabel;
+    const label = windowLabel(w);
     const nameEl = el("div", "plate-name");
-    nameEl.textContent = w.name;
+    nameEl.textContent = label;
+    // The tmux name is what rename edits and what a second tmux client shows,
+    // so it stays reachable when a title has taken the row.
+    nameEl.title = label === w.name ? "" : w.name;
     const idxEl = el("div", "plate-index");
     idxEl.textContent = w.index;
     main.appendChild(dotEl);
@@ -441,7 +456,7 @@
     // through the button's own name.
     main.setAttribute("aria-label", t("window.selectAria", {
       index: w.index,
-      name: w.name,
+      name: label,
       state: stateLabel
     }));
     main.addEventListener("click", function () {
@@ -453,7 +468,7 @@
     renameBtn.type = "button";
     renameBtn.textContent = "✎";
     renameBtn.title = t("window.rename");
-    renameBtn.setAttribute("aria-label", t("window.renameAria", { name: w.name }));
+    renameBtn.setAttribute("aria-label", t("window.renameAria", { name: label }));
     renameBtn.addEventListener("click", function () {
       openRename(project, w);
     });
@@ -461,7 +476,7 @@
     killBtn.type = "button";
     killBtn.textContent = "×";
     killBtn.title = onlyOne ? t("window.closeLastTitle") : t("window.closeTitle");
-    killBtn.setAttribute("aria-label", t("window.closeAria", { name: w.name }));
+    killBtn.setAttribute("aria-label", t("window.closeAria", { name: label }));
     killBtn.disabled = onlyOne;
     killBtn.addEventListener("click", function () {
       killWindow(project, w.index);

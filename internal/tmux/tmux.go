@@ -54,6 +54,29 @@ var (
 // same server, and Homebase must not reach outside its own session.
 const listFormat = "#{window_index} #{window_active} #{window_activity} #{window_bell_flag} #{window_name}"
 
+// titleTag prefixes every line of the second listing below. A window line
+// always starts with the window index, so a digit, which is what makes the
+// two listings unambiguous in one stream of output.
+const titleTag = "T "
+
+// titleFormat is the second listing: the OSC 0/2 title the program in the
+// window set, which tmux records per pane as #{pane_title}. It cannot be
+// appended to listFormat, because that format already ends in a free-form
+// field (the window name) that would swallow anything after it -- hence a
+// second list-windows in the same tmux invocation (see ListArgs).
+//
+// Why tmux and not the PTY: tmux does *not* forward a program's OSC title to
+// its client unless "set-titles on", and even then it sends the rendered
+// set-titles-string ('#S:#I:#W - "#T"'), not the bare title. So an
+// xterm.js onTitleChange listener on the WebSocket never fires. tmux is the
+// only place the real title exists, and it has it for every window, not just
+// the attached one.
+//
+// #{automatic-rename} rides along because a manual rename wins over the
+// title: tmux clears automatic-rename on rename-window, so a 0 there means
+// the user named this window on purpose and the sidebar must show that name.
+const titleFormat = titleTag + "#{window_index} #{automatic-rename} #{pane_title}"
+
 // AttachArgs is the PTY channel command: attach to the session (creating it
 // if needed) and turn off the status bar for that session only. dir sets the
 // start directory for a brand-new session; -A ignores it when the session
@@ -73,9 +96,17 @@ func AttachArgs(session, dir string) []string {
 	)
 }
 
-// ListArgs lists the windows of the session, one per line.
+// ListArgs lists the windows of the session twice in one tmux invocation:
+// once for the machine fields plus the window name, once for the pane title.
+// One exec, two formats, because each format may end in a free-form field.
+//
+// The ";" must stay its own argv element, exactly as in AttachArgs.
 func ListArgs(session string) []string {
-	return []string{"list-windows", "-t", session, "-F", listFormat}
+	return []string{
+		"list-windows", "-t", session, "-F", listFormat,
+		";",
+		"list-windows", "-t", session, "-F", titleFormat,
+	}
 }
 
 // ClientsArgs lists the tmux clients attached to the session, one per line.
