@@ -353,7 +353,7 @@
     if (project) {
       const delBtn = el("button", "btn-tiny proj-del");
       delBtn.type = "button";
-      delBtn.textContent = "\u{1F5D1}︎";
+      delBtn.innerHTML = window.homebaseIcons.markup("x");
       delBtn.title = t("project.delete");
       delBtn.setAttribute("aria-label", t("project.deleteAria", { name: label }));
       delBtn.addEventListener("click", function (ev) {
@@ -589,10 +589,39 @@
 
   // ---- projects -------------------------------------------------------------
 
+  const projectDeleteConfirm = document.getElementById("project-delete-confirm");
+  const projectDeleteBody = document.getElementById("project-delete-body");
+  const btnProjectDeleteConfirm = document.getElementById("btn-project-delete-confirm");
+  const btnProjectDeleteCancel = document.getElementById("btn-project-delete-cancel");
+  let pendingDeleteProject = null;
+
+  function showProjectDeleteConfirm(show) {
+    projectDeleteConfirm.hidden = !show;
+    if (!show) {
+      pendingDeleteProject = null;
+    }
+  }
+
   function deleteProject(p) {
-    if (!confirm(t("project.deleteConfirm", { name: p.name }))) {
+    pendingDeleteProject = p;
+    projectDeleteBody.textContent = t("project.deleteConfirm", { name: p.name });
+    showProjectDeleteConfirm(true);
+  }
+
+  btnProjectDeleteCancel.addEventListener("click", function () {
+    showProjectDeleteConfirm(false);
+  });
+  projectDeleteConfirm.addEventListener("click", function (ev) {
+    if (ev.target === projectDeleteConfirm) {
+      showProjectDeleteConfirm(false);
+    }
+  });
+  btnProjectDeleteConfirm.addEventListener("click", function () {
+    const p = pendingDeleteProject;
+    if (!p) {
       return;
     }
+    showProjectDeleteConfirm(false);
     api("/api/projects/" + encodeURIComponent(p.id), { method: "DELETE" }).then(function () {
       delete sections[p.id];
       if (currentProject === p.id) {
@@ -602,7 +631,7 @@
     }).catch(function (err) {
       showListMsg(err.message);
     });
-  }
+  });
 
   const projectModal = document.getElementById("project-modal");
   const projectForm = document.getElementById("project-form");
@@ -701,6 +730,45 @@
     }
   });
 
+  // ---- settings modal ---------------------------------------------------------
+  // Settings used to be a full navigation to /settings.html; it now opens in a
+  // modal instead, with settings.html loaded lazily into an iframe on first
+  // open so a session that never touches Settings never pays for it.
+
+  const settingsModal = document.getElementById("settings-modal");
+  const settingsFrame = document.getElementById("settings-frame");
+  const btnSettingsClose = document.getElementById("btn-settings-close");
+  btnSettingsClose.innerHTML = window.homebaseIcons.markup("x");
+
+  function setSettingsOpen(open) {
+    settingsModal.hidden = !open;
+    if (open && !settingsFrame.src) {
+      settingsFrame.src = "/settings.html";
+    }
+  }
+
+  document.getElementById("btn-settings-open").addEventListener("click", function () {
+    setSettingsOpen(true);
+  });
+  btnSettingsClose.addEventListener("click", function () {
+    setSettingsOpen(false);
+  });
+  settingsModal.addEventListener("click", function (ev) {
+    if (ev.target === settingsModal) {
+      setSettingsOpen(false);
+    }
+  });
+  // settings.html runs Escape-to-close itself when embedded (see its own
+  // keydown handler), since Escape inside the iframe never reaches this
+  // document's listener.
+  window.addEventListener("message", function (ev) {
+    if (ev.origin === window.location.origin &&
+        ev.source === settingsFrame.contentWindow &&
+        ev.data === "homebase:settings-close") {
+      setSettingsOpen(false);
+    }
+  });
+
   // ---- rename modal ---------------------------------------------------------
 
   function openRename(project, w) {
@@ -776,6 +844,14 @@
       setKeysOpen(false);
       return;
     }
+    if (!projectDeleteConfirm.hidden) {
+      showProjectDeleteConfirm(false);
+      return;
+    }
+    if (!settingsModal.hidden) {
+      setSettingsOpen(false);
+      return;
+    }
     if (appEl.classList.contains("is-nav-open")) {
       setNavOpen(false);
     }
@@ -786,12 +862,22 @@
     renderThemeButtons();
   });
 
+  function themeIcon(theme) {
+    if (theme === "light") {
+      return "sun";
+    }
+    if (theme === "dark") {
+      return "moon";
+    }
+    return "monitor";
+  }
+
   function renderThemeButtons() {
     const theme = window.homebasePrefs.get("theme");
     const name = t("theme." + theme);
     const title = t("theme.title", { name: name });
     document.querySelectorAll("[data-theme-cycle]").forEach(function (btn) {
-      btn.textContent = name;
+      btn.innerHTML = window.homebaseIcons.markup(themeIcon(theme));
       btn.title = title;
       btn.setAttribute("aria-label", title);
     });

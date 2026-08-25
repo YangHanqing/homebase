@@ -23,8 +23,7 @@
         <div class="chrome-host" id="chrome-host"></div>
       </div>
       <div class="chrome-actions">
-        <button type="button" class="btn-tiny" data-theme-cycle>Sys</button>
-        <a class="btn-tiny" href="/settings.html" title="Settings" data-i18n-title="settings.title">⚙&#xFE0E;</a>
+        <button type="button" class="btn-tiny" data-theme-cycle></button>
       </div>
     </header>
     <div class="shell">
@@ -34,7 +33,7 @@
           <div class="brand-row">
             <div class="brand-mark">Homebase</div>
             <div class="brand-actions">
-              <button type="button" class="btn-tiny" data-theme-cycle>Sys</button>
+              <button type="button" class="btn-tiny" data-theme-cycle></button>
             </div>
           </div>
         </header>
@@ -45,7 +44,7 @@
         <p class="list-msg" id="list-msg" hidden></p>
         <div class="sidebar-footer">
           <button type="button" class="btn-footer" id="btn-project-add" data-i18n="sidebar.addProject">+ Project</button>
-          <a class="btn-footer" href="/settings.html" data-i18n="settings.title">Settings</a>
+          <button type="button" class="btn-footer" id="btn-settings-open" data-i18n="settings.title">Settings</button>
         </div>
       </aside>
       <main class="main">
@@ -195,10 +194,31 @@
     </div>
   </div>
 
+  <div class="modal" id="project-delete-confirm" hidden>
+    <div class="sheet">
+      <p class="form-hint" id="project-delete-body"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn-solid btn-danger" id="btn-project-delete-confirm" data-i18n="project.deleteBtn">Delete</button>
+        <button type="button" class="btn-ghost" id="btn-project-delete-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal settings-modal" id="settings-modal" hidden>
+    <div class="sheet settings-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+      <div class="settings-modal-head">
+        <h2 id="settings-modal-title" data-i18n="settings.title">Settings</h2>
+        <button type="button" class="btn-icon" id="btn-settings-close" data-i18n-aria="common.close" aria-label="Close"></button>
+      </div>
+      <iframe class="settings-modal-frame" id="settings-frame" title="Settings"></iframe>
+    </div>
+  </div>
+
   <script src="/vendor/xterm/xterm.js"></script>
   <script src="/vendor/xterm/addon-fit.js"></script>
   <script src="/vendor/xterm/addon-unicode11.js"></script>
   <script src="/js/i18n.js"></script>
+  <script src="/js/icons.js"></script>
   <script src="/js/backoff.js"></script>
   <script src="/js/terminal.js"></script>
   <script src="/js/session.js"></script>

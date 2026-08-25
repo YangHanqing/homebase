@@ -248,3 +248,23 @@
   background: var(--bg);
   padding: 1px 5px;
 }
+
+/* Hidden by settings.js the moment it detects it is running inside the
+   terminal page's Settings modal -- the modal's own chrome already gives it
+   a title and a close button, so this page's full-navigation "Back" link
+   would be redundant there. */
+.settings-header.is-embedded { display: none; }
+
+.settings-about {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-about a { color: var(--muted); }
+.settings-about a:hover { color: var(--ink); }
+.settings-about-sep { opacity: 0.6; }

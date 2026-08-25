@@ -18,6 +18,9 @@
   const loopbackNotice = document.getElementById("loopback-notice");
   const securityPanel = document.getElementById("panel-security");
   const securityControls = document.getElementById("security-controls");
+  const settingsHeader = document.getElementById("settings-header");
+  const settingsVersion = document.getElementById("settings-version");
+  const embedded = window.self !== window.top;
   const maxRanges = 5;
   // Baseline to diff against for the Save button's dirty highlight.
   let savedAccess = null;
@@ -280,6 +283,9 @@
       syncRangesVisibility();
       setBaseline(access, rangesEl.value);
       securityControls.hidden = false;
+      if (s.version) {
+        settingsVersion.textContent = "homebase " + s.version;
+      }
       loadDevices();
     }).catch(function (err) {
       if (err.status === 401 || err.status === 403) {
@@ -403,6 +409,13 @@
     }
     if (!revokeConfirm.hidden) {
       showRevokeConfirm(false);
+      return;
+    }
+    // Escape inside the iframe never reaches the parent document's own
+    // listener, so the modal chrome that owns the close button has to be
+    // told explicitly.
+    if (embedded) {
+      window.parent.postMessage("homebase:settings-close", window.location.origin);
     }
   });
 
@@ -413,6 +426,9 @@
   });
 
   document.addEventListener("DOMContentLoaded", function () {
+    if (embedded && settingsHeader) {
+      settingsHeader.classList.add("is-embedded");
+    }
     let tab = "appearance";
     try {
       const saved = localStorage.getItem("homebase.settingsTab");

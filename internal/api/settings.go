@@ -51,7 +51,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsInner(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, settingsResponse(s.Store.Snapshot()))
+		resp := settingsResponse(s.Store.Snapshot())
+		writeJSON(w, http.StatusOK, map[string]any{
+			"access":         resp.Access,
+			"trusted_ranges": resp.TrustedRanges,
+			"version":        s.Version,
+		})
 	case http.MethodPut:
 		var body settingsBody
 		if err := decodeJSON(r, &body); err != nil {

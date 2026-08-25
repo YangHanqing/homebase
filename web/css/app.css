@@ -139,11 +139,34 @@ button, input { touch-action: manipulation; }
 }
 .brand-actions [data-theme-cycle],
 .chrome-actions [data-theme-cycle] {
-  min-width: 3.5em;
+  width: 28px;
+  height: 28px;
 }
 .brand-actions .btn-tiny:hover,
 .chrome-actions .btn-tiny:hover { border-color: var(--accent); color: var(--accent); }
 .chrome-actions { display: none; }
+
+/* Any icon pasted in from web/js/icons.js: sized to sit inside a .btn-tiny
+   or .btn-icon square without a font-size dependency. */
+.icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+}
+.btn-icon:hover { border-color: var(--accent); color: var(--accent); }
 
 .listhead {
   padding: 12px 16px 8px;
@@ -362,6 +385,15 @@ button, input { touch-action: manipulation; }
 }
 .proj-add:hover { border-color: var(--accent); color: var(--accent); }
 
+.proj-del {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.proj-del:hover { color: var(--led-err); }
 @media (hover: hover) and (pointer: fine) {
   .proj-del { display: none; }
   .proj-head:hover .proj-del,
@@ -720,6 +752,34 @@ button, input { touch-action: manipulation; }
   color: var(--ink);
 }
 .form-err { color: var(--led-err); font-size: 12px; }
+
+/* Settings used to be a full-page navigation; it now opens as a big modal
+   with settings.html loaded into an iframe, so its own header/tabs/cards
+   render unchanged inside a fixed-size frame instead of the viewport. */
+.settings-modal-sheet {
+  width: min(920px, 94vw);
+  height: min(760px, 88vh);
+  max-width: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.settings-modal-head h2 { margin: 0; }
+.settings-modal-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
 
 .browse-sheet { max-width: 420px; }
 .browse-path {

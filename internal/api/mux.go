@@ -27,6 +27,9 @@ type Server struct {
 	// Restart, if set, is invoked after a successful Settings PUT so the
 	// process can rebind. The callback must not block the request.
 	Restart func()
+	// Version is surfaced on GET /api/settings (loopback peer only, same as
+	// the rest of that route) for the Settings page's About footer.
+	Version string
 }
 
 // NewMux is the HTTP surface.
