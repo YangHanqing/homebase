@@ -18,7 +18,6 @@
   const loopbackNotice = document.getElementById("loopback-notice");
   const securityPanel = document.getElementById("panel-security");
   const securityControls = document.getElementById("security-controls");
-  const settingsHeader = document.getElementById("settings-header");
   const settingsVersion = document.getElementById("settings-version");
   const embedded = window.self !== window.top;
   const maxRanges = 5;
@@ -426,8 +425,8 @@
   });
 
   document.addEventListener("DOMContentLoaded", function () {
-    if (embedded && settingsHeader) {
-      settingsHeader.classList.add("is-embedded");
+    if (embedded) {
+      document.body.classList.add("is-embedded");
     }
     let tab = "appearance";
     try {

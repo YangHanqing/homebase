@@ -8,6 +8,15 @@
   margin: 0 auto;
   padding: 24px 20px 64px;
 }
+/* Embedded in the terminal page's Settings modal (a fixed ~920px sheet):
+   the standalone page's narrow, centered column leaves huge dead gutters
+   at that width, so widen it and swap the centering margin for padding
+   that scales with the sheet instead. */
+.settings-body.is-embedded .settings-page {
+  max-width: none;
+  margin: 0;
+  padding: 20px 32px 32px;
+}
 
 .settings-header {
   display: flex;
@@ -249,11 +258,12 @@
   padding: 1px 5px;
 }
 
-/* Hidden by settings.js the moment it detects it is running inside the
+/* Set by settings.js the moment it detects it is running inside the
    terminal page's Settings modal -- the modal's own chrome already gives it
    a title and a close button, so this page's full-navigation "Back" link
-   would be redundant there. */
-.settings-header.is-embedded { display: none; }
+   and its own <h1> title would both be redundant there. */
+.settings-body.is-embedded .settings-header,
+.settings-body.is-embedded .settings-page > h1 { display: none; }
 
 .settings-about {
   display: flex;
