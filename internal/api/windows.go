@@ -78,10 +78,14 @@ func (s *Server) dialerForProject(id string) (session.Dialer, error) {
 	if s.Projects == nil {
 		return nil, errUnknownProject
 	}
-	if _, err := s.Projects.Find(id); err != nil {
+	p, err := s.Projects.Find(id)
+	if err != nil {
 		return nil, errUnknownProject
 	}
-	return session.LocalDialer{Session: tmux.ProjectSession(id)}, nil
+	// StartDir only matters when this attach is the call that creates the
+	// session (post-reboot, or after the session was killed): its first
+	// window then lands in the project rather than $HOME.
+	return session.LocalDialer{Session: tmux.ProjectSession(id), StartDir: p.Path}, nil
 }
 
 func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {

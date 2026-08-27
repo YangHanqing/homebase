@@ -19,6 +19,13 @@ type LocalDialer struct {
 	// singleton session (tmux.SessionName), so a zero-value LocalDialer keeps
 	// working exactly as it did before per-project sessions existed.
 	Session string
+	// StartDir is the start directory for the session when this attach is the
+	// call that creates it (post-reboot, or after the session was killed).
+	// "new-session -A" ignores -c for an existing session, so this only ever
+	// bites the first attach. Empty falls back to $HOME, matching the legacy
+	// singleton, which has no project path; a project dialer sets it to the
+	// project's own path so that session's first window lands there.
+	StartDir string
 }
 
 func (d LocalDialer) session() string {
@@ -42,8 +49,11 @@ func (d LocalDialer) Start(ctx context.Context, sz Size) (Proc, error) {
 		bin = found
 	}
 	sz = sz.orDefault()
-	home, _ := os.UserHomeDir()
-	cmd := exec.Command(bin, tmux.AttachArgs(d.session(), home)...)
+	dir := d.StartDir
+	if dir == "" {
+		dir, _ = os.UserHomeDir()
+	}
+	cmd := exec.Command(bin, tmux.AttachArgs(d.session(), dir)...)
 	// creack/pty sets Setsid+Setctty. Setpgid together with that is EPERM on macOS.
 	cmd.Env = tmux.ExecEnv()
 	stderr := newLimitedBuf(4096)
