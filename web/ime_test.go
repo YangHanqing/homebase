@@ -61,3 +61,34 @@ func TestIMEGuardCannotGoStaleOnTheMissingEvent(t *testing.T) {
 		t.Error("the guard must replay through the same path as a live keystroke")
 	}
 }
+
+// A paste is not a swallowed keystroke. xterm sends the clipboard from its own
+// `paste` listener and calls stopPropagation but never preventDefault, so the
+// browser still inserts the text into the textarea and fires `input` behind it
+// -- with nothing following on the data channel, which is exactly the shape the
+// guard replays. That made Cmd+V arrive twice for any paste short enough to
+// clear the replay bound. If a re-vendor starts cancelling the default, this
+// premise changed and the guard's paste handling can go.
+func TestXtermLetsAPastedTextReachTheTextarea(t *testing.T) {
+	x := readWeb(t, "vendor/xterm/xterm.js")
+	h := between(t, x, "t.handlePasteEvent=function", "t.paste=")
+	if !strings.Contains(h, "stopPropagation") {
+		t.Error("xterm's paste handler moved; recheck how a paste reaches the textarea")
+	}
+	if strings.Contains(h, "preventDefault") {
+		t.Error("xterm now cancels the paste insert; the guard's paste handling is stale")
+	}
+}
+
+func TestIMEGuardDoesNotReplayAPaste(t *testing.T) {
+	body := between(t, readWeb(t, "js/terminal.js"), "function homebaseGuardIME(", "\n}")
+
+	if !strings.Contains(body, `ta.addEventListener("paste"`) || !strings.Contains(body, "ev.preventDefault()") {
+		t.Error("the guard must cancel the textarea insert a paste would otherwise leave behind")
+	}
+	// And if some browser inserts it anyway, the pasted text must be accounted
+	// for rather than replayed -- xterm already sent it.
+	if !strings.Contains(body, `ev.inputType === "insertFromPaste"`) {
+		t.Error("a paste-driven input event must never be treated as swallowed input")
+	}
+}

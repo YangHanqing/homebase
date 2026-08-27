@@ -325,9 +325,28 @@ function homebaseGuardIME(term, send) {
     });
   });
 
+  // xterm's own paste handler sends the clipboard and calls stopPropagation --
+  // but never preventDefault, so the browser goes on to insert the same text
+  // into the textarea, which fires `input` with nothing following it on the
+  // data channel. That looks exactly like a swallowed keystroke, so the guard
+  // replayed it and Cmd+V arrived twice. Not every time: only pastes short
+  // enough to clear HOMEBASE_IME_MAX_REPLAY, and only when nothing else was
+  // typed within HOMEBASE_IME_STUCK_MS. Cancelling the insert keeps the
+  // textarea a faithful log of what was *typed*; paste is already accounted
+  // for by the time this runs.
+  ta.addEventListener("paste", function (ev) {
+    ev.preventDefault();
+  });
+
   ta.addEventListener("input", function (ev) {
     // Mid-composition silence is correct: the pinyin is not input yet.
     if (ev.isComposing) {
+      return;
+    }
+    // Belt and braces for a browser that inserted the paste anyway: xterm has
+    // already sent it, so only the bookkeeping needs to catch up.
+    if (ev.inputType === "insertFromPaste" || ev.inputType === "insertFromDrop") {
+      accounted = ta.value;
       return;
     }
     const mark = dataCount;
