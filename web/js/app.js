@@ -57,6 +57,19 @@
     } else {
       collapsed.push(id);
     }
+    persistCollapsed();
+  }
+
+  function expandProject(id) {
+    const i = collapsed.indexOf(id);
+    if (i < 0) {
+      return;
+    }
+    collapsed.splice(i, 1);
+    persistCollapsed();
+  }
+
+  function persistCollapsed() {
     try {
       localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
     } catch (e) { /* private mode: collapse state lasts this page only */ }
@@ -577,6 +590,15 @@
   }
 
   function newWindow(project) {
+    // A project with no session yet gets its first window from the PTY
+    // attach (`new-session -A -c <project path>`). Also POSTing /api/windows
+    // races that attach and often produces a second window.
+    const s = sections[project];
+    const empty = !!project && (!s || !s.windows.length);
+    if (empty) {
+      ensureConnected(project);
+      return;
+    }
     ensureConnected(project);
     act(api(windowsPath(project), {
       method: "POST",
@@ -680,8 +702,18 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: path })
-    }).then(function () {
+    }).then(function (p) {
       projectModal.hidden = true;
+      if (!p || !p.id) {
+        return refreshAll();
+      }
+      if (!projects.some(function (x) { return x.id === p.id; })) {
+        projects.push(p);
+      }
+      expandProject(p.id);
+      renderSidebar();
+      // First window comes from this attach: new-session -A -c <path>.
+      ensureConnected(p.id);
       return refreshAll();
     }).catch(function (err) {
       projectFormErr.textContent = err.message;
