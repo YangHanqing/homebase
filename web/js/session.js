@@ -9,6 +9,9 @@ function HomebaseSession(opts) {
   this.timer = null;
   this.pingTimer = null;
   this.closed = false;
+  // Suppresses the backoff loop while a control action that may end this tmux
+  // session is in flight — see hold() below.
+  this.held = false;
   this.size = { cols: 80, rows: 24 };
   this.state = "disconnected";
   this.encoder = new TextEncoder();
@@ -128,7 +131,7 @@ HomebaseSession.prototype.setState = function (state, code, message) {
 };
 
 HomebaseSession.prototype.scheduleReconnect = function () {
-  if (this.closed) {
+  if (this.closed || this.held) {
     return;
   }
   const delay = homebaseNextDelayMs(this.attempt);
@@ -141,13 +144,39 @@ HomebaseSession.prototype.scheduleReconnect = function () {
 };
 
 HomebaseSession.prototype.wake = function () {
-  if (this.closed) {
+  if (this.closed || this.held) {
     return;
   }
   if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) {
     return;
   }
   this.clearTimer();
+  this.term.reset();
+  this.connect();
+};
+
+// While a control-channel action that may end this tmux session is in
+// flight, the backoff loop must not race it: "new-session -A" would
+// recreate the very session the DELETE is about to destroy, and the close
+// the user just asked for would silently undo itself. hold() suppresses
+// reconnection for that window; release() restores it, reconnecting if the
+// socket died meanwhile.
+HomebaseSession.prototype.hold = function () {
+  this.held = true;
+  this.clearTimer();
+};
+
+HomebaseSession.prototype.release = function () {
+  if (!this.held) {
+    return;
+  }
+  this.held = false;
+  if (this.closed) {
+    return;
+  }
+  if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) {
+    return;
+  }
   this.term.reset();
   this.connect();
 };
@@ -177,6 +206,11 @@ HomebaseSession.prototype.clearTimer = function () {
 };
 
 HomebaseSession.prototype.dispose = function () {
+  // A held session needs no unhold here: `closed` outranks `held` in every
+  // path that could act on it (scheduleReconnect, wake and release all bail
+  // on it first), and the caller that disposes a session is throwing the
+  // object away, not resuming it. So a hold can never strand a disposed
+  // socket in a state where a reconnect is owed but nobody will run it.
   this.closed = true;
   this.gen += 1;
   this.clearTimer();

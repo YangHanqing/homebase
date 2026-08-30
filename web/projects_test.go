@@ -28,7 +28,13 @@ func TestNewWindowOnEmptyProjectOnlyAttaches(t *testing.T) {
 	if !strings.Contains(body, "!s.windows.length") {
 		t.Error("newWindow must detect an empty project")
 	}
-	if !strings.Contains(body, "if (empty)") || !strings.Contains(body, "return;") {
+	// The branch is conditioned on more than "empty" now: an empty project
+	// that is already the attached one needs a reconnect rather than an
+	// attach, because ensureConnected is a no-op there. So this pins the
+	// shape that matters rather than the exact condition — emptiness is one
+	// of the operands, and that path returns instead of falling through to
+	// the POST. web/refresh_test.go pins the branches themselves.
+	if !strings.Contains(body, "if (empty &&") || !strings.Contains(body, "return;") {
 		t.Error("an empty project must return after attach, not POST /api/windows")
 	}
 	if !strings.Contains(body, "ensureConnected(project)") {

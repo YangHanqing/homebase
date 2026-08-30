@@ -35,6 +35,10 @@
   let session = null;
   let pollTimer = null;
   let inFlight = false;
+  // Callers whose refresh arrived while one was already running; they are
+  // resolved by the coalesced re-run in refreshWindows, not by the poll they
+  // collided with.
+  let refreshWaiters = [];
   let lastStatus = { state: "connecting" };
 
   const COLLAPSE_KEY = "homebase.collapsedProjects";
@@ -531,9 +535,25 @@
     });
   }
 
+  // A refresh that arrives mid-flight is queued and re-run, never dropped.
+  // Dropping it is not the harmless "the 3s poll will catch it" it looks
+  // like: the in-flight poll's requests went out *before* the control action
+  // that triggered this refresh, so it answers with the pre-action list and
+  // writes that back over `sections`, leaving the sidebar wrong for a whole
+  // poll interval. Two decisions read `sections` directly and get it exactly
+  // backwards on that stale data — newWindow's "is this project empty"
+  // (attach-only vs. POST; a stale "empty" is how one "+" click produced two
+  // tmux windows) and killWindow's "was that the last window" (which decides
+  // whether the session just ended). AGENT.md's Frontend section requires the
+  // list to be refreshed immediately after every successful control action,
+  // so a discarded refresh is a contract violation as well as a race.
+  //
+  // The returned promise must also settle only once the *re-run* is done —
+  // callers act on `sections` afterwards — which is what resolve(rerun) below
+  // buys: each waiter adopts the re-run's promise instead of the collided one.
   function refreshWindows() {
     if (inFlight) {
-      return Promise.resolve();
+      return new Promise(function (resolve) { refreshWaiters.push(resolve); });
     }
     inFlight = true;
     const ids = sectionIds();
@@ -556,6 +576,12 @@
       }
     }).finally(function () {
       inFlight = false;
+      const waiters = refreshWaiters;
+      refreshWaiters = [];
+      if (waiters.length) {
+        const rerun = refreshWindows();
+        waiters.forEach(function (resolve) { resolve(rerun); });
+      }
     });
   }
 
@@ -592,13 +618,30 @@
   function newWindow(project) {
     // A project with no session yet gets its first window from the PTY
     // attach (`new-session -A -c <project path>`). Also POSTing /api/windows
-    // races that attach and often produces a second window.
+    // races that attach and often produces a second window. But "empty" alone
+    // does not say *how* to attach: ensureConnected is a no-op once the
+    // project is already the attached one, so an empty attached project used
+    // to leave this function having done nothing at all.
     const s = sections[project];
     const empty = !!project && (!s || !s.windows.length);
-    if (empty) {
+    if (empty && project !== currentProject) {
+      // The attach itself creates the first window; also POSTing races it.
       ensureConnected(project);
       return;
     }
+    if (empty && lastStatus.state !== "connected") {
+      // Already the attached project, but the socket is down -- the session
+      // died with its last window, and it is the reconnect that recreates
+      // it. Wake it now rather than waiting out the backoff; ensureConnected
+      // would be a no-op here, which is what left the button dead.
+      if (session) {
+        session.wake();
+      }
+      return;
+    }
+    // Either the project has windows, or "empty" is a stale reading on a
+    // live socket -- an open attach proves the session exists, so the POST
+    // is the right call.
     ensureConnected(project);
     act(api(windowsPath(project), {
       method: "POST",
@@ -608,20 +651,31 @@
   }
 
   function killWindow(project, index) {
-    // A project session has no "last window" guard (AGENT.md hard constraint
-    // 3): closing this one may end the whole session on purpose. If that
-    // session is the one attached, the normal WS reconnect (Model A's
-    // backoff loop) would otherwise recreate it seconds later via
-    // "new-session -A", silently undoing the close the user just asked for.
-    const s = sections[project];
-    const killingLast = !!s && s.windows.length <= 1;
-    const req = api(windowsPath(project, "/" + index), { method: "DELETE" });
-    act(req);
-    if (killingLast && project === currentProject && project !== "") {
-      req.then(function () {
-        connect("");
-      }).catch(function () {});
+    // A project session has no "last window" guard (AGENT.md hard
+    // constraint 3): closing this one may end the whole session on purpose.
+    // Two things used to undo that. The backoff reconnect would run
+    // "new-session -A" and bring the session back seconds later, so the
+    // socket is held for the length of the request; and the "was that the
+    // last one" decision cannot be made from sections beforehand, whose
+    // count may be a poll behind, so it is made from the refreshed list
+    // afterwards.
+    const attached = project === currentProject && project !== "";
+    if (attached && session) {
+      session.hold();
     }
+    act(api(windowsPath(project, "/" + index), { method: "DELETE" })).then(function () {
+      if (!attached || currentProject !== project) {
+        return;
+      }
+      const s = sections[project];
+      if (s && !s.windows.length) {
+        connect(""); // the session ended with its last window
+        return;
+      }
+      if (session) {
+        session.release();
+      }
+    });
   }
 
   // ---- projects -------------------------------------------------------------
