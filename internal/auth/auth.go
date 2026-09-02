@@ -71,6 +71,11 @@ func (g *Gate) Wrap(next http.Handler) http.Handler {
 			g.deny(w, r)
 			return
 		}
+		// Rewrite on every authenticated request so a cookie minted under
+		// older flags (SameSite=Strict) picks up the current policy without
+		// re-pairing. Incoming Cookie headers do not carry flags, so there
+		// is no cheaper "only if stale" check.
+		http.SetCookie(w, sessionCookie(c.Value))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -90,18 +95,7 @@ func (g *Gate) handlePair(w http.ResponseWriter, r *http.Request) {
 		g.deny(w, r)
 		return
 	}
-	// Secure is deliberately false: this build never serves TLS, and marking
-	// the cookie HTTPS-only on a plain-HTTP listener would make the browser
-	// withhold it and lock everyone out.
-	http.SetCookie(w, &http.Cookie{
-		Name:     CookieName,
-		Value:    secret,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(sessionMaxAge.Seconds()),
-	})
+	http.SetCookie(w, sessionCookie(secret))
 	if g.Log != nil {
 		g.Log.Info("device paired", "id", dev.ID, "name", dev.Name, "remote", clientIP(r))
 	}
@@ -124,6 +118,27 @@ func (g *Gate) deny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"not paired","hint":"run 'homebase pair' on the Homebase machine"}`))
+}
+
+// sessionCookie is the device session. SameSite is Lax, not Strict: Strict
+// withholds the cookie on the first navigation from another app (Tailscale,
+// a notes link, iOS "open in Safari"), so the pairing page appears even
+// though the device is already enrolled — a reload then works, which is
+// exactly the symptom. Lax still withholds the cookie from cross-site POST
+// and XHR; mutating routes also have requireOrigin. Secure is deliberately
+// false: this build never serves TLS, and marking the cookie HTTPS-only on
+// a plain-HTTP listener would make the browser withhold it and lock
+// everyone out.
+func sessionCookie(secret string) *http.Cookie {
+	return &http.Cookie{
+		Name:     CookieName,
+		Value:    secret,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionMaxAge.Seconds()),
+	}
 }
 
 func wantsHTML(r *http.Request) bool {

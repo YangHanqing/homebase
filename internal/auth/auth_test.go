@@ -73,7 +73,8 @@ func TestPairThenAccess(t *testing.T) {
 		t.Fatal("no session cookie set")
 	}
 	// Secure is deliberately false: this build never serves TLS.
-	if !session.HttpOnly || session.Secure || session.SameSite != http.SameSiteStrictMode {
+	// Lax, not Strict: Strict withholds the cookie on a cross-app open.
+	if !session.HttpOnly || session.Secure || session.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("weak cookie flags: %+v", session)
 	}
 
@@ -225,6 +226,41 @@ func TestRequireLoopbackHost(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("host %q allowed: %d", host, rec.Code)
 		}
+	}
+}
+
+// Cookies minted under SameSite=Strict must be rewritten to Lax without
+// forcing the operator to re-pair; incoming Cookie headers do not carry flags.
+func TestAuthenticatedRequestRefreshesCookie(t *testing.T) {
+	g, st := newGate(t)
+	h := g.Wrap(okHandler())
+	token, _, err := st.Mint(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := st.Redeem(token, "test", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/windows", nil)
+	req.AddCookie(&http.Cookie{Name: CookieName, Value: secret})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated: %d", rec.Code)
+	}
+	var refreshed *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == CookieName {
+			refreshed = c
+		}
+	}
+	if refreshed == nil || refreshed.Value != secret {
+		t.Fatal("authenticated request must rewrite the session cookie")
+	}
+	if refreshed.SameSite != http.SameSiteLaxMode || refreshed.Secure || !refreshed.HttpOnly {
+		t.Fatalf("refreshed cookie flags: %+v", refreshed)
 	}
 }
 
