@@ -31,8 +31,9 @@ const (
 )
 
 type probe struct {
-	kind   probeKind
-	listen string
+	kind    probeKind
+	listen  string
+	started time.Time
 }
 
 func runStart(args []string) int {
@@ -152,13 +153,20 @@ func probeHealth(rawURL string) probe {
 		return probe{kind: probeOther}
 	}
 	var body struct {
-		OK     bool   `json:"ok"`
-		Listen string `json:"listen"`
+		OK      bool   `json:"ok"`
+		Listen  string `json:"listen"`
+		Started string `json:"started"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil || !body.OK {
 		return probe{kind: probeOther}
 	}
-	return probe{kind: probeOurs, listen: body.Listen}
+	p := probe{kind: probeOurs, listen: body.Listen}
+	if body.Started != "" {
+		if t, err := time.Parse(time.RFC3339, body.Started); err == nil {
+			p.started = t
+		}
+	}
+	return p
 }
 
 func isUnreachable(err error) bool {

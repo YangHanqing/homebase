@@ -109,12 +109,25 @@ func TestSystemdUnitUsesServe(t *testing.T) {
 func TestProbeHealthOursAndOther(t *testing.T) {
 	ours := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok":true,"listen":"127.0.0.1:1990"}`))
+		w.Write([]byte(`{"ok":true,"listen":"127.0.0.1:1990","started":"2026-09-01T06:32:05Z"}`))
 	}))
 	defer ours.Close()
 	p := probeHealth(ours.URL)
 	if p.kind != probeOurs || p.listen != "127.0.0.1:1990" {
 		t.Fatalf("ours: %+v", p)
+	}
+	if p.started.UTC().Format("2006-01-02T15:04:05Z") != "2026-09-01T06:32:05Z" {
+		t.Fatalf("started: %v", p.started)
+	}
+
+	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"listen":"127.0.0.1:1990"}`))
+	}))
+	defer legacy.Close()
+	p = probeHealth(legacy.URL)
+	if p.kind != probeOurs || !p.started.IsZero() {
+		t.Fatalf("legacy health without started: %+v", p)
 	}
 
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

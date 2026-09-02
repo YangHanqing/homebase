@@ -230,7 +230,7 @@ you normally only do this once.
 | `homebase start` | Register a user-level background service and start it |
 | `homebase stop` | Stop the service. Config file and tmux session are untouched |
 | `homebase restart` | Stop, then start — run this after upgrading the binary |
-| `homebase status` | Whether it's running, bind address, URL, tmux path, version, pairing state, paired device count |
+| `homebase status` | Whether it's running, when it started, bind address, URL, tmux path, version, pairing state, paired device count |
 | `homebase pair` | Print a one-time login link: 10 minutes, single use |
 | `homebase version` | Print the build version |
 

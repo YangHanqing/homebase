@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/yanghanqing/homebase/internal/config"
 	"github.com/yanghanqing/homebase/internal/devices"
@@ -30,6 +31,9 @@ type Server struct {
 	// Version is surfaced on GET /api/settings (loopback peer only, same as
 	// the rest of that route) for the Settings page's About footer.
 	Version string
+	// Started is the process start time, echoed on GET /api/health to a
+	// loopback peer so `homebase status` can print it. Zero is omitted.
+	Started time.Time
 }
 
 // NewMux is the HTTP surface.
@@ -41,7 +45,7 @@ func NewMux(listen string, store *config.Store, dialer session.Dialer, log *slog
 // a fake control channel.
 func NewMuxServer(s *Server) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", HealthHandler(s.Listen))
+	mux.HandleFunc("GET /api/health", HealthHandler(s.Listen, s.Started))
 
 	if s.Store != nil {
 		mux.HandleFunc("GET /api/windows", s.handleTmuxWindows)

@@ -72,6 +72,7 @@ func runServe(args []string) int {
 		Dialer:   session.LocalDialer{},
 		Log:      log,
 		Version:  versionString(),
+		Started:  time.Now(),
 		Restart: func() {
 			go func() {
 				time.Sleep(400 * time.Millisecond)

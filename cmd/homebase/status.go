@@ -26,6 +26,9 @@ func runStatus(args []string) int {
 	running := p.kind == probeOurs || (serviceProbeFallback(r) && serviceActive())
 	if running {
 		fmt.Println("running        yes")
+		if !p.started.IsZero() {
+			fmt.Printf("started        %s\n", p.started.Local().Format("2006-01-02 15:04:05"))
+		}
 	} else {
 		fmt.Println("running        no")
 	}

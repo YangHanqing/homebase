@@ -156,7 +156,7 @@ macOS **不会**为此弹窗，程序自己也无法申请这个权限。不提�
 | `homebase start` | 注册为用户级后台服务并启动 |
 | `homebase stop` | 停止服务。配置文件和 tmux session 都不受影响 |
 | `homebase restart` | 先 stop 再 start——升级二进制后执行 |
-| `homebase status` | 是否在运行、bind 地址、URL、tmux 路径、版本、是否需要配对、已配对设备数 |
+| `homebase status` | 是否在运行、启动时间、bind 地址、URL、tmux 路径、版本、是否需要配对、已配对设备数 |
 | `homebase pair` | 打印一次性登录链接：10 分钟有效，只能用一次 |
 | `homebase version` | 打印构建版本号 |
 
