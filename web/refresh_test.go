@@ -80,6 +80,41 @@ func TestPlusOnAnEmptyAttachedProjectWakesTheSocket(t *testing.T) {
 	}
 }
 
+// Empty + connected used to fall through to POST on the theory that a live
+// socket meant the list was stale. The attach that opened that socket already
+// created the first window, so the POST was a second window from one click.
+func TestNewWindowNeverPostsWhileEmpty(t *testing.T) {
+	body := newWindowBody(t)
+	post := strings.Index(body, `method: "POST"`)
+	if post < 0 {
+		t.Fatal("newWindow must still POST /api/windows for a project that already has windows")
+	}
+	before := body[:post]
+	if strings.Count(before, "if (empty") < 2 {
+		t.Error("every empty reading must be handled before the POST")
+	}
+	if strings.Count(before, "return;") < 3 {
+		t.Error("every empty branch must return before the POST, including empty+connected")
+	}
+	if !strings.Contains(before, "refreshWindows()") {
+		t.Error("empty + connected must refresh the list, not POST a second window")
+	}
+}
+
+func TestNewWindowIgnoresReentrantClicks(t *testing.T) {
+	js := readWeb(t, "js/app.js")
+	if !strings.Contains(js, "let creating") {
+		t.Error("creating must be a module-level lock; a per-call one cannot catch a second click")
+	}
+	body := newWindowBody(t)
+	if !strings.Contains(body, "creating[project]") {
+		t.Error("newWindow must ignore a second click while a create is in flight")
+	}
+	if !strings.Contains(body, "delete creating[project]") {
+		t.Error("the in-flight lock must clear when the POST settles, or later clicks are swallowed")
+	}
+}
+
 // Both attach paths create the window through `new-session -A -c <path>`.
 // A POST alongside either one races that attach and lands two windows where
 // the user asked for one, so each branch has to leave before the POST is

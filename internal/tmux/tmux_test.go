@@ -355,16 +355,43 @@ func TestNewWindowFallsBackToHomeWhenCurrentPathFails(t *testing.T) {
 	}
 }
 
-// A project's very first window is requested before its session exists, so
-// there is no current pane to copy -- it must land in the project's own
-// directory, not $HOME (see AGENT.md's "same" dir-mode fallback).
-func TestNewWindowFallsBackToProjectPathWhenCurrentPathFails(t *testing.T) {
-	f := &fakeRunner{
-		out: map[string]string{"new-window": "1\n"},
-		err: map[string]error{"display-message": ErrNoSession},
-	}
+// A project window always starts in the project folder, even when some pane
+// reports a different cwd -- that pane has often cd'd out, or the lookup
+// resolved against another session.
+func TestNewWindowInProjectUsesProjectPathNotCurrentPane(t *testing.T) {
+	f := &fakeRunner{out: map[string]string{
+		"new-window":      "1\n",
+		"display-message": "/tmp/elsewhere\n",
+	}}
 	c := Client{R: f}
 	if _, err := c.NewWindow(context.Background(), "same", "/tmp/proj"); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, args := range f.seen {
+		if args[0] == "display-message" {
+			t.Fatal("project new-window must not copy pane_current_path")
+		}
+		if args[0] == "new-window" {
+			got = args
+		}
+	}
+	if !contains(got, "-c") || !contains(got, "/tmp/proj") {
+		t.Fatalf("new-window should start in the project path, got %q", got)
+	}
+	if contains(got, "/tmp/elsewhere") {
+		t.Fatalf("new-window used the pane path instead of the project: %q", got)
+	}
+}
+
+func TestNewWindowHomeIgnoresProjectPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory")
+	}
+	f := &fakeRunner{out: map[string]string{"new-window": "1\n"}}
+	c := Client{R: f}
+	if _, err := c.NewWindow(context.Background(), "home", "/tmp/proj"); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
@@ -373,8 +400,43 @@ func TestNewWindowFallsBackToProjectPathWhenCurrentPathFails(t *testing.T) {
 			got = args
 		}
 	}
-	if !contains(got, "-c") || !contains(got, "/tmp/proj") {
-		t.Fatalf("new-window should fall back to the project path, got %q", got)
+	if !contains(got, "-c") || !contains(got, home) {
+		t.Fatalf("dir=home should start in home %q, got %q", home, got)
+	}
+	if contains(got, "/tmp/proj") {
+		t.Fatalf("dir=home must not use the project path, got %q", got)
+	}
+}
+
+// Losing the new-session race to a concurrent PTY attach must return the
+// window that attach already created, not issue a second new-window.
+func TestNewWindowDuplicateSessionReturnsExistingWindow(t *testing.T) {
+	const sess = "homebase-aaaaaaaaaaaa"
+	f := &fakeRunner{
+		out: map[string]string{
+			"list-windows": "0 1 1787485588 0 zsh\n",
+		},
+		err: map[string]error{
+			"new-window":  errors.New("tmux: can't find window: " + sess),
+			"new-session": errors.New("tmux: duplicate session: " + sess),
+		},
+	}
+	c := Client{R: f, Session: sess}
+	idx, err := c.NewWindow(context.Background(), "same", "/tmp/proj")
+	if err != nil {
+		t.Fatalf("duplicate-session race should return the existing window, got %v", err)
+	}
+	if idx != 0 {
+		t.Fatalf("index %d, want the attach's window 0", idx)
+	}
+	var newWindowCalls int
+	for _, args := range f.seen {
+		if args[0] == "new-window" {
+			newWindowCalls++
+		}
+	}
+	if newWindowCalls != 1 {
+		t.Fatalf("new-window called %d times, want 1 (the failed attempt, no retry)", newWindowCalls)
 	}
 }
 

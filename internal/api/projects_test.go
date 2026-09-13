@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yanghanqing/homebase/internal/projects"
@@ -137,6 +138,43 @@ func TestWindowsRouteRejectsUnknownProject(t *testing.T) {
 	}
 	if len(r.got) != 0 {
 		t.Fatalf("must not reach tmux for an unknown project: %v", r.got)
+	}
+}
+
+// A new window in a project must start in that project's folder, not
+// whatever pane_current_path the control channel might report (often
+// Ungrouped / $HOME when this project is not the attached session).
+func TestNewWindowOnProjectStartsInProjectPath(t *testing.T) {
+	ps := testProjects(t)
+	dir := t.TempDir()
+	h := projServer(t, &fakeRunner{}, ps)
+	rec := do(t, h, http.MethodPost, "/api/projects", map[string]string{"path": dir})
+	p := decode[projects.Project](t, rec)
+
+	r := &fakeRunner{}
+	h2 := projServer(t, r, ps)
+	rec = do(t, h2, http.MethodPost, "/api/windows?project="+p.ID, map[string]string{"dir": "same"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var sawDisplay, sawNew bool
+	for _, args := range r.got {
+		switch {
+		case len(args) > 0 && args[0] == "display-message":
+			sawDisplay = true
+		case len(args) > 0 && args[0] == "new-window":
+			sawNew = true
+			joined := strings.Join(args, " ")
+			if !strings.Contains(joined, dir) {
+				t.Fatalf("new-window -c missing project path %q: %v", dir, args)
+			}
+		}
+	}
+	if sawDisplay {
+		t.Fatal("project new-window must not ask pane_current_path")
+	}
+	if !sawNew {
+		t.Fatal("expected new-window")
 	}
 }
 

@@ -40,6 +40,10 @@
   // collided with.
   let refreshWaiters = [];
   let lastStatus = { state: "connecting" };
+  // Per-section lock so a second "+" click (or a click that retriggers
+  // while the POST is in flight) cannot create two windows. Attach-only
+  // paths do not take it: new-session -A is already idempotent.
+  let creating = {};
 
   const COLLAPSE_KEY = "homebase.collapsedProjects";
   function loadCollapsed() {
@@ -542,9 +546,9 @@
   // writes that back over `sections`, leaving the sidebar wrong for a whole
   // poll interval. Two decisions read `sections` directly and get it exactly
   // backwards on that stale data — newWindow's "is this project empty"
-  // (attach-only vs. POST; a stale "empty" is how one "+" click produced two
-  // tmux windows) and killWindow's "was that the last window" (which decides
-  // whether the session just ended). AGENT.md's Frontend section requires the
+  // (attach-only vs. POST) and killWindow's "was that the last window" (which
+  // decides whether the session just ended). Empty no longer POSTs, but a
+  // stale non-empty still does. AGENT.md's Frontend section requires the
   // list to be refreshed immediately after every successful control action,
   // so a discarded refresh is a contract violation as well as a race.
   //
@@ -628,6 +632,11 @@
     // last window ends it, and nothing recreates it while the terminal is
     // attached to some project instead -- so "+" on Ungrouped from another
     // project used to attach *and* POST, reliably making two windows.
+    //
+    // Empty + connected used to POST too, on the theory that a live socket
+    // meant the list was stale and the user wanted another window. The
+    // attach that opened that socket already created the first window, so
+    // the POST was the second one from the same click. Refresh instead.
     const s = sections[project];
     const empty = !s || !s.windows.length;
     if (empty && project !== currentProject) {
@@ -645,15 +654,22 @@
       }
       return;
     }
-    // Either the section has windows, or "empty" is a stale reading on a
-    // live socket -- an open attach proves the session exists, so the POST
-    // is the right call.
+    if (empty) {
+      refreshWindows();
+      return;
+    }
+    if (creating[project]) {
+      return;
+    }
+    creating[project] = true;
     ensureConnected(project);
     act(api(windowsPath(project), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dir: homebasePref("newWindowDir", "same") })
-    }));
+    })).finally(function () {
+      delete creating[project];
+    });
   }
 
   function killWindow(project, index) {

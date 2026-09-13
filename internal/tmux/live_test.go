@@ -167,6 +167,52 @@ func TestLiveNewWindowStartsInHome(t *testing.T) {
 	}
 }
 
+// A project window must start in the project folder even when the session's
+// current pane is somewhere else (the regression: "same" copied that pane).
+func TestLiveNewWindowInProjectUsesFallbackDir(t *testing.T) {
+	bin, err := LocalBinary()
+	if err != nil {
+		t.Skip("tmux not installed")
+	}
+	proj, err := os.MkdirTemp("", "hbproj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(proj) })
+	want, err := filepath.EvalSymlinks(proj)
+	if err != nil {
+		want = proj
+	}
+
+	dir := privateSocketDir(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := "homebase-projtest01"
+	if out, err := exec.CommandContext(ctx, bin, "new-session", "-d", "-s", session, "-c", "/tmp").CombinedOutput(); err != nil {
+		t.Skipf("cannot start a private tmux server: %v (%s)", err, out)
+	}
+	killPrivateServer(t, bin, dir)
+
+	c := Client{R: LocalRunner{Bin: bin}, Session: session}
+	idx, err := c.NewWindow(ctx, "same", proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.CommandContext(ctx, bin,
+		"display-message", "-p", "-t", target(session, idx), "#{pane_current_path}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(string(out))
+	gotResolved, err := filepath.EvalSymlinks(got)
+	if err == nil {
+		got = gotResolved
+	}
+	if got != want {
+		t.Fatalf("new window cwd: got %q, want project %q", got, want)
+	}
+}
+
 func find(ws []Window, index int) Window {
 	for _, w := range ws {
 		if w.Index == index {

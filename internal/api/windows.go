@@ -52,10 +52,11 @@ func (s *Server) tmuxClientForRequest(r *http.Request) (tmux.Client, error) {
 }
 
 // projectPathForRequest resolves the optional "?project=<id>" query param to
-// that project's path, for NewWindow's fallback directory. Any failure —
-// no param, unknown id — yields "", the legacy singleton's "no fallback"
-// value; tmuxClientForRequest has already turned a real error into 404 by
-// the time this runs, so this lookup only needs to be best-effort.
+// that project's path, which NewWindow uses as the new window's start
+// directory. Any failure — no param, unknown id — yields "", the legacy
+// singleton's "copy the current pane" value; tmuxClientForRequest has
+// already turned a real error into 404 by the time this runs, so this
+// lookup only needs to be best-effort.
 func (s *Server) projectPathForRequest(r *http.Request) string {
 	id := r.URL.Query().Get("project")
 	if id == "" || s.Projects == nil {

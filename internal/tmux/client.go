@@ -224,13 +224,12 @@ func (c Client) ClientCount(ctx context.Context) (int, error) {
 
 // NewWindow creates a window and returns its index. dirMode selects the
 // start directory: "home" always starts in $HOME (not in whatever cwd the
-// homebase process happens to have — often "/" under launchd); anything
-// else, including the default "same", copies the currently active pane's
-// directory, like a normal terminal's new-tab. fallbackDir is used instead
-// of $HOME when that lookup fails — chiefly a project's own path, so a
-// project's very first window (no session yet, so there is no "current
-// pane" to copy) still opens where the project lives rather than in $HOME.
-// Pass "" for the legacy singleton session, which has no such path.
+// homebase process happens to have — often "/" under launchd). For a
+// project, anything else uses fallbackDir — the project's own folder —
+// so a new window lands in the project rather than wherever some pane
+// currently is. For the legacy singleton (fallbackDir ""), it copies the
+// currently active pane's directory, like a normal terminal's new-tab.
+// Pass "" for the legacy singleton session, which has no project path.
 func (c Client) NewWindow(ctx context.Context, dirMode, fallbackDir string) (int, error) {
 	dir := c.startDir(ctx, dirMode, fallbackDir)
 	out, err := c.R.Run(ctx, NewWindowArgs(c.session(), dir))
@@ -246,9 +245,12 @@ func (c Client) NewWindow(ctx context.Context, dirMode, fallbackDir string) (int
 		out, err = c.R.Run(ctx, NewSessionDetachedArgs(c.session(), dir))
 		if err != nil && strings.Contains(err.Error(), "duplicate session") {
 			// Lost a race with a concurrent PTY attach creating the same
-			// session (the browser opens both at once when the sidebar's
-			// "+" switches the terminal to this project too); it exists
-			// now, so the original command works.
+			// session. That attach's first window IS the requested one;
+			// retrying new-window here is how one "+" click produced two
+			// windows. Return the window that already exists.
+			if idx, ok := c.activeWindowIndex(ctx); ok {
+				return idx, nil
+			}
 			out, err = c.R.Run(ctx, NewWindowArgs(c.session(), dir))
 		}
 		if err != nil {
@@ -260,6 +262,21 @@ func (c Client) NewWindow(ctx context.Context, dirMode, fallbackDir string) (int
 		return 0, errors.New("tmux did not print a window index")
 	}
 	return idx, nil
+}
+
+// activeWindowIndex is the current window of this session, used when a
+// concurrent attach already created the window NewWindow was asked for.
+func (c Client) activeWindowIndex(ctx context.Context) (int, bool) {
+	windows, err := c.ListWindows(ctx)
+	if err != nil || len(windows) == 0 {
+		return 0, false
+	}
+	for _, w := range windows {
+		if w.Active {
+			return w.Index, true
+		}
+	}
+	return windows[0].Index, true
 }
 
 // sessionMissing reports whether err means "this client's session does not
@@ -279,23 +296,27 @@ func (c Client) sessionMissing(err error) bool {
 	return err.Error() == fmt.Sprintf("tmux: can't find window: %s", c.session())
 }
 
-// startDir resolves the directory a new window should open in. A missing
-// session, or any other lookup failure, falls back to fallbackDir (when
-// given — typically the owning project's path) and then to $HOME, rather
-// than failing window creation over it.
+// startDir resolves the directory a new window should open in. "home"
+// always uses $HOME. A project (fallbackDir set) always uses that folder:
+// copying #{pane_current_path} looks like a terminal's new-tab, but that
+// pane has often cd'd out of the project, and the lookup can also resolve
+// against a different session's client (Ungrouped, $HOME) when this
+// project is not the one attached. The legacy singleton has no such
+// folder, so it copies the current pane and falls back to $HOME. Never
+// omit -c; that reintroduces the launchd cwd.
 func (c Client) startDir(ctx context.Context, dirMode, fallbackDir string) string {
 	home, _ := os.UserHomeDir()
 	if dirMode == "home" {
 		return home
+	}
+	if fallbackDir != "" {
+		return fallbackDir
 	}
 	out, err := c.R.Run(ctx, CurrentPathArgs(c.session()))
 	if err == nil {
 		if dir := strings.TrimSpace(string(out)); dir != "" {
 			return dir
 		}
-	}
-	if fallbackDir != "" {
-		return fallbackDir
 	}
 	return home
 }
