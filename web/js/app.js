@@ -616,21 +616,27 @@
   }
 
   function newWindow(project) {
-    // A project with no session yet gets its first window from the PTY
-    // attach (`new-session -A -c <project path>`). Also POSTing /api/windows
-    // races that attach and often produces a second window. But "empty" alone
+    // A section with no session yet gets its first window from the PTY
+    // attach (`new-session -A -c <dir>`). Also POSTing /api/windows races
+    // that attach and often produces a second window. But "empty" alone
     // does not say *how* to attach: ensureConnected is a no-op once the
-    // project is already the attached one, so an empty attached project used
+    // section is already the attached one, so an empty attached section used
     // to leave this function having done nothing at all.
+    //
+    // Ungrouped ("") is bound by this rule exactly like a project. Its
+    // singleton session is no more eternal than a project's -- exiting its
+    // last window ends it, and nothing recreates it while the terminal is
+    // attached to some project instead -- so "+" on Ungrouped from another
+    // project used to attach *and* POST, reliably making two windows.
     const s = sections[project];
-    const empty = !!project && (!s || !s.windows.length);
+    const empty = !s || !s.windows.length;
     if (empty && project !== currentProject) {
       // The attach itself creates the first window; also POSTing races it.
       ensureConnected(project);
       return;
     }
     if (empty && lastStatus.state !== "connected") {
-      // Already the attached project, but the socket is down -- the session
+      // Already the attached section, but the socket is down -- the session
       // died with its last window, and it is the reconnect that recreates
       // it. Wake it now rather than waiting out the backoff; ensureConnected
       // would be a no-op here, which is what left the button dead.
@@ -639,7 +645,7 @@
       }
       return;
     }
-    // Either the project has windows, or "empty" is a stale reading on a
+    // Either the section has windows, or "empty" is a stale reading on a
     // live socket -- an open attach proves the session exists, so the POST
     // is the right call.
     ensureConnected(project);

@@ -44,3 +44,21 @@ func TestNewWindowOnEmptyProjectOnlyAttaches(t *testing.T) {
 		t.Error("newWindow must still POST /api/windows when the project already has windows")
 	}
 }
+
+// Ungrouped ("") is bound by the attach-only rule too. Its singleton session
+// ends when its last window exits, and nothing recreates it while the one
+// terminal is attached to a project instead — so "+" on Ungrouped would
+// attach (creating the session's first window) *and* POST /api/windows
+// (whose new-session fallback then loses the "duplicate session" race and
+// adds a second one). Gating "empty" on the project id being non-empty is
+// exactly that bug, so pin its absence.
+func TestNewWindowTreatsUngroupedLikeAProject(t *testing.T) {
+	js := readWeb(t, "js/app.js")
+	body := between(t, js, "function newWindow(project) {", "\n  function killWindow")
+	if strings.Contains(body, "!!project &&") {
+		t.Error(`"empty" must not be gated on a non-empty project id: Ungrouped needs the same attach-only path`)
+	}
+	if !strings.Contains(body, "const empty = !s || !s.windows.length;") {
+		t.Error("emptiness must be read from the section's window list alone")
+	}
+}
